@@ -75,10 +75,12 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); bo
 .meta .muted { color: var(--muted); font-size: 13px; }
 
 .candidates { display: flex; flex-direction: column; gap: 8px; max-height: 200px; overflow: auto; }
-.cand { display: flex; justify-content: space-between; gap: 10px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); cursor: pointer; }
+.cand { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); cursor: pointer; }
+.cand > div { min-width: 0; }
+.cand > div > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cand:hover { border-color: var(--accent); }
 .cand small { color: var(--muted); }
-.badge { font-size: 11px; padding: 2px 7px; border-radius: 99px; background: #243; color: var(--accent-2); }
+.badge { flex: none; white-space: nowrap; font-size: 11px; padding: 3px 9px; border-radius: 99px; background: #243; color: var(--accent-2); }
 .badge.no { background: #332; color: #d9b84a; }
 
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }

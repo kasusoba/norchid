@@ -26,8 +26,8 @@ HEIGHT = 1080
 FPS = 60
 THUMB_W = 1280
 THUMB_H = 720
-THUMB_TITLE_SIZE = 110   # default cinematic title start size (px), tunable in review
-THUMB_PILL_SIZE = 38     # default "Instrumental" pill font size (px)
+THUMB_TITLE_SIZE = 84    # default cinematic title start size (px), tunable in review
+THUMB_PILL_SIZE = 34     # default "Instrumental" pill font size (px)
 THUMB_BG_SOURCES = {"youtube": "Video thumbnail", "cover": "Album cover (blur)",
                     "cover_boxed": "Album cover (boxed)"}
 

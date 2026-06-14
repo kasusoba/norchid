@@ -244,7 +244,7 @@ class JobManager:
                 return c.get("syncedLyrics") or c.get("plainLyrics")
         return None
 
-    def submit_review(self, job: Job, *, lrc, romaji, offset_ms, vocal_mode, bg_mode,
+    def _apply_review(self, job: Job, *, lrc, romaji, offset_ms, vocal_mode, bg_mode,
                       title_secondary, title_size, pill_size, thumb_bg, lyric_size,
                       bg_color=None, pill_color=None) -> None:
         job.lrc = lrc
@@ -261,6 +261,15 @@ class JobManager:
             job.bg_color = tuple(bg_color)
         job.pill_color = tuple(pill_color) if pill_color else None
         job.lyric_size = int(lyric_size or 0)
+
+    def save_draft(self, job: Job, **fields) -> None:
+        """Persist the review settings without rendering (so a restart mid-edit
+        doesn't lose them)."""
+        self._apply_review(job, **fields)
+        self._save(job)
+
+    def submit_review(self, job: Job, **fields) -> None:
+        self._apply_review(job, **fields)
         job.status = "running"
         job.stage = "rendering"
         self._queue.put(("finalize", job.id))

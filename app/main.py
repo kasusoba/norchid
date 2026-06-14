@@ -140,6 +140,24 @@ def submit_review(jid: str, body: ReviewSubmit):
     return {"ok": True, "job_id": job.id}
 
 
+@app.post("/api/jobs/{jid}/draft")
+def save_draft(jid: str, body: ReviewSubmit):
+    """Persist review edits (lyrics, romaji, sizes, colours, bg choices, …) without
+    rendering, so they survive a server restart even before you hit Render."""
+    job = manager.get(jid)
+    if not job:
+        raise HTTPException(404, "job not found")
+    if not job.ctx:
+        return {"ok": False}
+    manager.save_draft(job, lrc=body.lrc, romaji=body.romaji, offset_ms=body.offset_ms,
+                       vocal_mode=body.vocal_mode, bg_mode=body.bg_mode,
+                       title_secondary=body.title_secondary, title_size=body.title_size,
+                       pill_size=body.pill_size, thumb_bg=body.thumb_bg,
+                       bg_color=body.bg_color, pill_color=body.pill_color,
+                       lyric_size=body.lyric_size)
+    return {"ok": True}
+
+
 @app.post("/api/jobs/{jid}/thumbnail-preview")
 def thumbnail_preview(jid: str, body: dict):
     """Render the cinematic thumbnail with the given (editable) secondary title."""

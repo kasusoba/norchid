@@ -191,8 +191,19 @@
                     @click="form.thumb_bg=s.id; refreshThumb()" x-text="s.label"></button>
           </template>
         </div>
+        <div class="hint">Wrong/missing album cover?
+          <label class="linklike">upload your own
+            <input type="file" accept="image/*" @change="uploadCover($event)" style="display:none">
+          </label>
+          <span x-show="uploading" class="muted"> uploading…</span>
+        </div>
+
         <div class="spacer"></div>
-        <label>Japanese / secondary title (optional)</label>
+        <label>Title (top) — type romaji here to put it above the native title</label>
+        <input type="text" x-model="form.title_main" @input.debounce.400ms="refreshThumb()"
+               placeholder="main title" />
+        <div class="spacer"></div>
+        <label>Secondary title (optional) — shown under, in 「」 if Japanese</label>
         <input type="text" x-model="form.title_secondary" @input.debounce.400ms="refreshThumb()"
                placeholder="e.g. 東京フラッシュ (auto-filled from iTunes when available)" />
         <div class="spacer"></div>
@@ -264,7 +275,7 @@ function norchid() {
   return {
     cfg: { models: [], default: 'roformer', thumb_bg_sources: [] },
     rcfg: { width: 1920, height: 1080, scroll: { font_size: 60, line_gap_ratio: 1.733, line_gap_ratio_romaji: 2.55, romaji_size_ratio: 0.52, romaji_offset_ratio: 0.92, visible_radius: 6, transition_ms: 240, alpha_active: 0, alpha_passed: 0.66, alpha_upcoming: 0.42 } },
-    form: { url: '', sep_model: 'roformer', lrc: '', romaji: '', offset_ms: 0, vocal_mode: 'instrumental', bg_mode: 'color', bg_color: null, title_secondary: '', title_size: 84, pill_size: 34, thumb_bg: 'youtube', pill_color: null, lyric_size: 60 },
+    form: { url: '', sep_model: 'roformer', lrc: '', romaji: '', offset_ms: 0, vocal_mode: 'instrumental', bg_mode: 'color', bg_color: null, title_main: '', title_secondary: '', title_size: 84, pill_size: 34, thumb_bg: 'youtube', pill_color: null, lyric_size: 60 },
     romajiLines: [],
     jobId: null,
     jobList: [],
@@ -282,6 +293,7 @@ function norchid() {
     thumbSrc: '',
     _dirty: false,
     _scrubbing: false,
+    uploading: false,
 
     get screen() {
       if (!this.jobId) return 'input';
@@ -325,7 +337,7 @@ function norchid() {
         await fetch(`/api/jobs/${this.jobId}/draft`, { method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ lrc: this.form.lrc, romaji: this.form.romaji, offset_ms: this.form.offset_ms,
             vocal_mode: this.form.vocal_mode, bg_mode: this.form.bg_mode, bg_color: this.form.bg_color,
-            pill_color: this.form.pill_color, title_secondary: this.form.title_secondary,
+            pill_color: this.form.pill_color, title_main: this.form.title_main, title_secondary: this.form.title_secondary,
             title_size: this.form.title_size, pill_size: this.form.pill_size, thumb_bg: this.form.thumb_bg,
             lyric_size: this.form.lyric_size }) });
       } catch (e) {}
@@ -370,6 +382,7 @@ function norchid() {
       this.form.bg_color = this.review.bg_color || null;
       this.form.pill_color = this.review.pill_color || null;
       this.form.vocal_mode = this.review.vocal_mode || 'instrumental';
+      this.form.title_main = this.review.title_main || '';
       this.form.title_secondary = this.review.title_secondary || '';
       this.form.title_size = this.review.title_size || 84;
       this.form.pill_size = this.review.pill_size || 34;
@@ -582,7 +595,7 @@ function norchid() {
     async refreshThumb() {
       try {
         const r = await fetch(`/api/jobs/${this.jobId}/thumbnail-preview`, { method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ title_secondary: this.form.title_secondary, title_size: this.form.title_size, pill_size: this.form.pill_size, thumb_bg: this.form.thumb_bg, pill_color: this.form.pill_color }) });
+          body: JSON.stringify({ title_main: this.form.title_main, title_secondary: this.form.title_secondary, title_size: this.form.title_size, pill_size: this.form.pill_size, thumb_bg: this.form.thumb_bg, pill_color: this.form.pill_color }) });
         if (!r.ok) return;
         if (this._thumbBlob) URL.revokeObjectURL(this._thumbBlob);
         this._thumbBlob = URL.createObjectURL(await r.blob());
@@ -590,6 +603,21 @@ function norchid() {
       } catch (e) {}
     },
 
+    async uploadCover(e) {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      this.uploading = true;
+      try {
+        await this.saveDraft();                      // flush pending edits first
+        const fd = new FormData(); fd.append('file', f);
+        const r = await fetch(`/api/jobs/${this.jobId}/cover`, { method: 'POST', body: fd });
+        if (r.ok) {
+          this.review = await (await fetch(`/api/jobs/${this.jobId}/review`)).json();
+          this.thumbSrc = this.review.thumbnail_url + '?_=' + Date.now();
+        }
+      } catch (err) {}
+      this.uploading = false; e.target.value = '';
+    },
     async pickCandidate(cid) {
       const d = await (await fetch(`/api/jobs/${this.jobId}/candidate/${cid}`)).json();
       if (d.lrc) { this.form.lrc = d.lrc; this.onLrcChange(); }
@@ -600,7 +628,7 @@ function norchid() {
         body: JSON.stringify({ lrc: this.form.lrc, romaji: this.form.romaji, offset_ms: this.form.offset_ms,
           vocal_mode: this.form.vocal_mode, bg_mode: this.form.bg_mode,
           bg_color: this.form.bg_color, pill_color: this.form.pill_color,
-          title_secondary: this.form.title_secondary, title_size: this.form.title_size,
+          title_main: this.form.title_main, title_secondary: this.form.title_secondary, title_size: this.form.title_size,
           pill_size: this.form.pill_size, thumb_bg: this.form.thumb_bg,
           lyric_size: this.form.lyric_size }) });
       this.forceReview = false;

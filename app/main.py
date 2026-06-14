@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -43,6 +43,7 @@ class ReviewSubmit(BaseModel):
     vocal_mode: str = "instrumental"
     bg_mode: str = config.DEFAULT_BG_MODE
     title_secondary: str = ""
+    title_main: str = ""
     title_size: int = config.THUMB_TITLE_SIZE
     pill_size: int = config.THUMB_PILL_SIZE
     thumb_bg: str = "youtube"
@@ -133,7 +134,7 @@ def submit_review(jid: str, body: ReviewSubmit):
         raise HTTPException(409, "job has no prepared context yet")
     manager.submit_review(job, lrc=body.lrc, romaji=body.romaji, offset_ms=body.offset_ms,
                           vocal_mode=body.vocal_mode, bg_mode=body.bg_mode,
-                          title_secondary=body.title_secondary, title_size=body.title_size,
+                          title_secondary=body.title_secondary, title_main=body.title_main, title_size=body.title_size,
                           pill_size=body.pill_size, thumb_bg=body.thumb_bg,
                           bg_color=body.bg_color, pill_color=body.pill_color,
                           lyric_size=body.lyric_size)
@@ -151,7 +152,7 @@ def save_draft(jid: str, body: ReviewSubmit):
         return {"ok": False}
     manager.save_draft(job, lrc=body.lrc, romaji=body.romaji, offset_ms=body.offset_ms,
                        vocal_mode=body.vocal_mode, bg_mode=body.bg_mode,
-                       title_secondary=body.title_secondary, title_size=body.title_size,
+                       title_secondary=body.title_secondary, title_main=body.title_main, title_size=body.title_size,
                        pill_size=body.pill_size, thumb_bg=body.thumb_bg,
                        bg_color=body.bg_color, pill_color=body.pill_color,
                        lyric_size=body.lyric_size)
@@ -170,7 +171,7 @@ def thumbnail_preview(jid: str, body: dict):
     try:
         thumbnail.make_thumbnail(job.meta, work_dir, job.bg_color, out,
                                  yt_thumb=job.ctx.get("yt_thumb"), cover=job.ctx.get("cover"),
-                                 secondary=(body or {}).get("title_secondary", ""),
+                                 secondary=(body or {}).get("title_secondary", ""), title_main=(body or {}).get("title_main", ""),
                                  title_size=int((body or {}).get("title_size") or config.THUMB_TITLE_SIZE),
                                  pill_size=int((body or {}).get("pill_size") or config.THUMB_PILL_SIZE),
                                  bg_source=(body or {}).get("thumb_bg", "youtube"),
@@ -178,6 +179,23 @@ def thumbnail_preview(jid: str, body: dict):
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, f"thumbnail render failed: {e}")
     return FileResponse(out, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/jobs/{jid}/cover")
+async def upload_cover(jid: str, file: UploadFile = File(...)):
+    """Replace the album cover with a user-supplied image (fallback when the
+    auto-sourced cover is wrong/missing). Regenerates cover-derived assets."""
+    job = manager.get(jid)
+    if not job or not job.ctx:
+        raise HTTPException(404, "job not ready")
+    import io
+    from PIL import Image
+    try:
+        img = Image.open(io.BytesIO(await file.read())).convert("RGB")
+    except Exception:
+        raise HTTPException(400, "not a readable image")
+    manager.set_custom_cover(job, img)
+    return {"ok": True}
 
 
 @app.get("/api/jobs/{jid}/asset/{name}")
@@ -190,7 +208,9 @@ def get_asset(jid: str, name: str):
     path = manager.asset_path(job, name)
     if not path:
         raise HTTPException(404, "asset not found")
-    return FileResponse(path)
+    # Images can change (custom cover upload) — let the browser revalidate them.
+    headers = {"Cache-Control": "no-cache"} if path.suffix in (".png", ".jpg") else None
+    return FileResponse(path, headers=headers)
 
 
 @app.post("/api/jobs/{jid}/preview-frame")

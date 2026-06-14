@@ -22,8 +22,8 @@ from pipeline import artwork, lyrics, runner
 # workspace/<id>/; we only need the metadata to rehydrate a job after a restart).
 _PERSIST_FIELDS = ("url", "sep_model", "status", "stage", "meta", "offset_ms",
                    "vocal_mode", "bg_mode", "title_secondary", "title_size",
-                   "pill_size", "thumb_bg", "pill_color", "lyric_size", "lrc",
-                   "romaji", "lrc_candidates", "outputs", "error")
+                   "pill_size", "thumb_bg", "pill_color", "title_main", "lyric_size",
+                   "lrc", "romaji", "lrc_candidates", "outputs", "error")
 _BG_FILES = {"color": "background.png", "cover": "bg_cover.png",
              "thumbnail": "bg_thumbnail.png"}
 
@@ -93,6 +93,7 @@ class Job:
     vocal_mode: str = "instrumental"
     bg_mode: str = config.DEFAULT_BG_MODE
     title_secondary: str = ""
+    title_main: str = ""
     title_size: int = config.THUMB_TITLE_SIZE
     pill_size: int = config.THUMB_PILL_SIZE
     thumb_bg: str = "youtube"
@@ -215,6 +216,7 @@ class JobManager:
             "bg_mode": job.bg_mode,
             "backgrounds": backgrounds,
             "title_secondary": job.meta.get("title_secondary", ""),
+            "title_main": job.title_main or job.meta.get("title", ""),
             "title_size": job.title_size,
             "pill_size": job.pill_size,
             "thumb_bg": job.thumb_bg,
@@ -244,9 +246,30 @@ class JobManager:
                 return c.get("syncedLyrics") or c.get("plainLyrics")
         return None
 
+    def set_custom_cover(self, job: Job, img) -> None:
+        """Replace the cover with a user image and regenerate cover-derived assets
+        (blurred bg, palette, thumbnail)."""
+        from pipeline import thumbnail
+        wd = config.WORKSPACE / job.id
+        cover = wd / "cover.jpg"
+        img.save(cover, "JPEG", quality=92)
+        ctx = job.ctx
+        ctx["cover"] = cover
+        ctx["palette"] = artwork.palette(cover)
+        ctx.setdefault("backgrounds", {})
+        ctx["backgrounds"]["cover"] = artwork.make_cover_background(cover, wd / "bg_cover.png")
+        thumbnail.make_thumbnail(
+            job.meta, wd, job.bg_color, wd / "thumb_cinematic.png",
+            yt_thumb=ctx.get("yt_thumb"), cover=cover,
+            secondary=job.meta.get("title_secondary"), title_main=job.title_main,
+            title_size=job.title_size, bg_source=job.thumb_bg,
+            pill_size=job.pill_size, pill_color=job.pill_color)
+        self._save(job)
+
     def _apply_review(self, job: Job, *, lrc, romaji, offset_ms, vocal_mode, bg_mode,
                       title_secondary, title_size, pill_size, thumb_bg, lyric_size,
-                      bg_color=None, pill_color=None) -> None:
+                      bg_color=None, pill_color=None, title_main="") -> None:
+        job.title_main = (title_main or "").strip()
         job.lrc = lrc
         job.romaji = romaji
         job.offset_ms = int(offset_ms or 0)
@@ -316,7 +339,7 @@ class JobManager:
                         job.ctx, work_dir, out_dir,
                         lrc=job.lrc, romaji=job.romaji, offset_ms=job.offset_ms,
                         vocal_mode=job.vocal_mode, bg_mode=job.bg_mode,
-                        title_secondary=job.title_secondary, title_size=job.title_size,
+                        title_secondary=job.title_secondary, title_main=job.title_main, title_size=job.title_size,
                         pill_size=job.pill_size, thumb_bg=job.thumb_bg,
                         bg_color=job.bg_color, pill_color=job.pill_color,
                         lyric_size=job.lyric_size,

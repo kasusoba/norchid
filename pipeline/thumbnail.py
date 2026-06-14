@@ -232,8 +232,9 @@ def make_thumbnail(meta: dict, work_dir: Path, bg_color, out: Path,
                    yt_thumb: Path | None = None, secondary: str | None = None,
                    title_size: int = config.THUMB_TITLE_SIZE,
                    cover: Path | None = None, bg_source: str = "youtube",
-                   pill_size: int = config.THUMB_PILL_SIZE, pill_color=None) -> Path:
-    title = meta.get("title") or "Untitled"
+                   pill_size: int = config.THUMB_PILL_SIZE, pill_color=None,
+                   title_main: str | None = None) -> Path:
+    title = (title_main or "").strip() or meta.get("title") or "Untitled"
     if yt_thumb is None:
         yt_thumb = download_yt_thumb(meta.get("yt_thumbnail_url"), work_dir)
     sec = secondary if secondary is not None else meta.get("title_secondary")

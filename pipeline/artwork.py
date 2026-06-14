@@ -34,17 +34,48 @@ def fetch_cover(artist: str, title: str, work_dir: Path) -> tuple[Path | None, s
         return None, None
 
 
-def itunes_lookup(artist: str, title: str, country: str | None = None) -> dict | None:
-    """First iTunes song result for artist+title (cover + native trackName)."""
-    params = {"term": f"{artist} {title}".strip(), "entity": "song", "limit": 3}
+# Knockoff albums to avoid when a real release isn't on the queried store.
+_BAD_ALBUM = ("karaoke", "instrumental", "no guide", "guide melody", "tribute",
+              "originally performed", "made famous", "cover version",
+              "backing track", "in the style of", "8-bit", "lullaby", "piano tribute")
+
+
+def _itunes_search(artist: str, title: str, country: str | None = None,
+                   limit: int = 6) -> list[dict]:
+    params = {"term": f"{artist} {title}".strip(), "entity": "song", "limit": limit}
     if country:
         params["country"] = country
     try:
         with httpx.Client(headers={"User-Agent": UA}, timeout=20.0) as c:
-            results = c.get("https://itunes.apple.com/search", params=params).json().get("results", [])
-        return results[0] if results else None
+            return c.get("https://itunes.apple.com/search", params=params).json().get("results", [])
     except Exception:
+        return []
+
+
+def _itunes_score(r: dict, artist: str) -> int:
+    al = (artist or "").lower().strip()
+    an = (r.get("artistName") or "").lower()
+    blob = " ".join((r.get("trackName") or "", r.get("collectionName") or "",
+                     r.get("artistName") or "")).lower()
+    s = 0
+    if al and (al in an or an in al):
+        s += 3
+    elif al and an and al.split()[0] in an:
+        s += 1
+    if any(b in blob for b in _BAD_ALBUM):
+        s -= 6
+    return s
+
+
+def itunes_lookup(artist: str, title: str, country: str | None = None) -> dict | None:
+    """Best iTunes song match across the JP + default stores, skipping karaoke/
+    cover knockoffs and preferring a result whose artist actually matches."""
+    results = _itunes_search(artist, title, "JP") + _itunes_search(artist, title, country)
+    if not results:
         return None
+    best = max(results, key=lambda r: _itunes_score(r, artist))
+    # If even the best is a knockoff with no artist match, treat as no match.
+    return best if _itunes_score(best, artist) > -4 else None
 
 
 def _itunes_cover(artist: str, title: str) -> str | None:
@@ -65,10 +96,11 @@ def _has_cjk(text: str) -> bool:
 def native_title(artist: str, title: str) -> str | None:
     """A CJK 'native' track title from iTunes' JP store, if it differs from
     ``title``. Returned as an editable suggestion (the user can fix/clear it)."""
-    res = itunes_lookup(artist, title, country="JP")
-    if not res:
+    results = _itunes_search(artist, title, "JP")
+    results = [r for r in results if _itunes_score(r, artist) > -4]
+    if not results:
         return None
-    name = (res.get("trackName") or "").strip()
+    name = (max(results, key=lambda r: _itunes_score(r, artist)).get("trackName") or "").strip()
     if name and _has_cjk(name) and name.lower() != (title or "").strip().lower():
         return name
     return None

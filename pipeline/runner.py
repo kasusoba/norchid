@@ -100,7 +100,7 @@ def finalize(ctx: dict, work_dir: Path, out_dir: Path, *,
              lrc: str | None, romaji: str | None = None, offset_ms: int = 0,
              vocal_mode: str = "instrumental",
              bg_mode: str = config.DEFAULT_BG_MODE,
-             title_secondary: str | None = None,
+             title_secondary: str | None = None, title_main: str | None = None,
              title_size: int = config.THUMB_TITLE_SIZE,
              pill_size: int = config.THUMB_PILL_SIZE, thumb_bg: str = "youtube",
              bg_color=None, pill_color=None,
@@ -146,7 +146,7 @@ def finalize(ctx: dict, work_dir: Path, out_dir: Path, *,
     sec = title_secondary if title_secondary is not None \
         else ctx["meta"].get("title_secondary")
     thumbnail.make_thumbnail(ctx["meta"], work_dir, ctx["bg_color"], out_thumb,
-                             yt_thumb=ctx.get("yt_thumb"), secondary=sec,
+                             yt_thumb=ctx.get("yt_thumb"), secondary=sec, title_main=title_main,
                              title_size=title_size, cover=ctx.get("cover"),
                              bg_source=thumb_bg, pill_size=pill_size, pill_color=pill_color)
     progress(0.95)

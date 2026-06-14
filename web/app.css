@@ -170,6 +170,7 @@ input[type=range]:focus { outline: none; }
 
 .err { color: var(--danger); background: #2a1414; border: 1px solid #4a2020; padding: 12px; border-radius: 9px; }
 .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.linklike { color: var(--accent); cursor: pointer; text-decoration: underline; }
 .spacer { height: 14px; }
 .flex-between { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 [x-cloak] { display: none !important; }

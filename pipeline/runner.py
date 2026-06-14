@@ -73,7 +73,8 @@ def prepare(url: str, work_dir: Path, sep_model: str = config.DEFAULT_SEP_MODEL,
             yt_thumb, work_dir / "bg_thumbnail.png")
 
     thumbnail.make_cinematic(meta["title"], meta["title_secondary"], yt_thumb,
-                             art["bg_color"], work_dir / "thumb_cinematic.png")
+                             art["bg_color"], work_dir / "thumb_cinematic.png",
+                             cover=art["cover"])
     log(f"  backgrounds: {sorted(backgrounds)} | thumbnail: cinematic")
     progress(1.0)
 
@@ -100,6 +101,7 @@ def finalize(ctx: dict, work_dir: Path, out_dir: Path, *,
              bg_mode: str = config.DEFAULT_BG_MODE,
              title_secondary: str | None = None,
              title_size: int = config.THUMB_TITLE_SIZE,
+             pill_size: int = config.THUMB_PILL_SIZE, thumb_bg: str = "youtube",
              lyric_size: int | None = None,
              log: Log = _noop, stage: Stage = _noop, progress: Progress = _noop) -> dict:
     """Render the video + thumbnail from the (possibly user-edited) review state."""
@@ -140,7 +142,8 @@ def finalize(ctx: dict, work_dir: Path, out_dir: Path, *,
         else ctx["meta"].get("title_secondary")
     thumbnail.make_thumbnail(ctx["meta"], work_dir, ctx["bg_color"], out_thumb,
                              yt_thumb=ctx.get("yt_thumb"), secondary=sec,
-                             title_size=title_size)
+                             title_size=title_size, cover=ctx.get("cover"),
+                             bg_source=thumb_bg, pill_size=pill_size)
     progress(0.95)
 
     outputs = _collect(out_dir, ctx["meta"], out_video, out_thumb, ctx["instrumental"])

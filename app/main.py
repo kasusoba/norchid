@@ -44,6 +44,8 @@ class ReviewSubmit(BaseModel):
     bg_mode: str = config.DEFAULT_BG_MODE
     title_secondary: str = ""
     title_size: int = config.THUMB_TITLE_SIZE
+    pill_size: int = config.THUMB_PILL_SIZE
+    thumb_bg: str = "youtube"
     lyric_size: int = 0
 
 
@@ -64,6 +66,7 @@ def list_models():
         "vocal_modes": ["instrumental", "guide"],
         "bg_modes": [{"id": k, "label": v} for k, v in config.BG_MODES.items()],
         "default_bg_mode": config.DEFAULT_BG_MODE,
+        "thumb_bg_sources": [{"id": k, "label": v} for k, v in config.THUMB_BG_SOURCES.items()],
     }
 
 
@@ -121,6 +124,7 @@ def submit_review(jid: str, body: ReviewSubmit):
     manager.submit_review(job, lrc=body.lrc, romaji=body.romaji, offset_ms=body.offset_ms,
                           vocal_mode=body.vocal_mode, bg_mode=body.bg_mode,
                           title_secondary=body.title_secondary, title_size=body.title_size,
+                          pill_size=body.pill_size, thumb_bg=body.thumb_bg,
                           lyric_size=body.lyric_size)
     return {"ok": True, "job_id": job.id}
 
@@ -136,9 +140,11 @@ def thumbnail_preview(jid: str, body: dict):
     out = work_dir / "thumb_preview.png"
     try:
         thumbnail.make_thumbnail(job.meta, work_dir, job.bg_color, out,
-                                 yt_thumb=job.ctx.get("yt_thumb"),
+                                 yt_thumb=job.ctx.get("yt_thumb"), cover=job.ctx.get("cover"),
                                  secondary=(body or {}).get("title_secondary", ""),
-                                 title_size=int((body or {}).get("title_size") or config.THUMB_TITLE_SIZE))
+                                 title_size=int((body or {}).get("title_size") or config.THUMB_TITLE_SIZE),
+                                 pill_size=int((body or {}).get("pill_size") or config.THUMB_PILL_SIZE),
+                                 bg_source=(body or {}).get("thumb_bg", "youtube"))
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, f"thumbnail render failed: {e}")
     return FileResponse(out, headers={"Cache-Control": "no-store"})

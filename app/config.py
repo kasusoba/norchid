@@ -27,6 +27,8 @@ FPS = 60
 THUMB_W = 1280
 THUMB_H = 720
 THUMB_TITLE_SIZE = 110   # default cinematic title start size (px), tunable in review
+THUMB_PILL_SIZE = 38     # default "Instrumental" pill font size (px)
+THUMB_BG_SOURCES = {"youtube": "Video thumbnail", "cover": "Album cover"}
 
 # Scrolling-lyrics model — shared by the ASS renderer AND the browser preview
 # (served via /api/render-config) so they look the same. Spotify-style: lines
@@ -39,11 +41,11 @@ SCROLL = {
     "romaji_offset_ratio": 0.92,    # romaji center below the native line center
     "visible_radius": 6,        # lines emitted above/below active
     "transition_ms": 240,       # scroll/handoff duration (snappy)
-    # 3 states (Spotify): active (current), passed (already sung, above),
-    # upcoming (not reached, below). Values are ASS \alpha transparency (0=opaque).
+    # 3 states (Spotify): active (current), passed (already sung, above = DIM),
+    # upcoming (not reached, below = MID). ASS \alpha transparency (0=opaque).
     "alpha_active": 0.0,        # opacity 1.0
-    "alpha_passed": 0.42,       # opacity ~0.58
-    "alpha_upcoming": 0.66,     # opacity ~0.34
+    "alpha_passed": 0.66,       # already sung -> dim (opacity ~0.34)
+    "alpha_upcoming": 0.42,     # not reached -> mid (opacity ~0.58)
 }
 
 # Video background modes (review step). "color" = flat album color (default),

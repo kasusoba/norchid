@@ -156,12 +156,29 @@
 
       <!-- thumbnail -->
       <div class="card">
-        <label>Thumbnail — Japanese / secondary title (optional)</label>
+        <label>Thumbnail background</label>
+        <div class="seg">
+          <template x-for="s in cfg.thumb_bg_sources" :key="s.id">
+            <button :class="form.thumb_bg===s.id && 'on'"
+                    :disabled="s.id==='cover' && !review.has_cover"
+                    @click="form.thumb_bg=s.id; refreshThumb()" x-text="s.label"></button>
+          </template>
+        </div>
+        <div class="spacer"></div>
+        <label>Japanese / secondary title (optional)</label>
         <input type="text" x-model="form.title_secondary" @input.debounce.400ms="refreshThumb()"
                placeholder="e.g. 東京フラッシュ (auto-filled from iTunes when available)" />
         <div class="spacer"></div>
-        <div class="ctl-label"><label style="margin:0">Title size</label><b x-text="form.title_size + ' px'"></b></div>
-        <input type="range" min="48" max="170" step="2" x-model.number="form.title_size" @input.debounce.250ms="refreshThumb()" />
+        <div class="row">
+          <div class="col">
+            <div class="ctl-label"><label style="margin:0">Title size</label><b x-text="form.title_size + ' px'"></b></div>
+            <input type="range" min="48" max="170" step="2" x-model.number="form.title_size" @input.debounce.250ms="refreshThumb()" />
+          </div>
+          <div class="col">
+            <div class="ctl-label"><label style="margin:0">Pill size</label><b x-text="form.pill_size + ' px'"></b></div>
+            <input type="range" min="22" max="72" step="2" x-model.number="form.pill_size" @input.debounce.250ms="refreshThumb()" />
+          </div>
+        </div>
         <div class="spacer"></div>
         <img class="thumb-preview" :src="thumbSrc" alt="thumbnail preview" />
       </div>
@@ -205,9 +222,9 @@
 <script>
 function norchid() {
   return {
-    cfg: { models: [], default: 'roformer' },
-    rcfg: { width: 1920, height: 1080, scroll: { font_size: 60, line_gap_ratio: 1.733, line_gap_ratio_romaji: 2.55, romaji_size_ratio: 0.52, romaji_offset_ratio: 0.92, visible_radius: 6, transition_ms: 240, alpha_active: 0, alpha_passed: 0.42, alpha_upcoming: 0.66 } },
-    form: { url: '', sep_model: 'roformer', lrc: '', romaji: '', offset_ms: 0, vocal_mode: 'instrumental', bg_mode: 'color', title_secondary: '', title_size: 110, lyric_size: 60 },
+    cfg: { models: [], default: 'roformer', thumb_bg_sources: [] },
+    rcfg: { width: 1920, height: 1080, scroll: { font_size: 60, line_gap_ratio: 1.733, line_gap_ratio_romaji: 2.55, romaji_size_ratio: 0.52, romaji_offset_ratio: 0.92, visible_radius: 6, transition_ms: 240, alpha_active: 0, alpha_passed: 0.66, alpha_upcoming: 0.42 } },
+    form: { url: '', sep_model: 'roformer', lrc: '', romaji: '', offset_ms: 0, vocal_mode: 'instrumental', bg_mode: 'color', title_secondary: '', title_size: 110, pill_size: 38, thumb_bg: 'youtube', lyric_size: 60 },
     romajiLines: [],
     jobId: null,
     job: { status: null, stage: '', progress: 0, logs: [], outputs: {}, meta: {} },
@@ -276,6 +293,9 @@ function norchid() {
       this.form.bg_mode = this.review.bg_mode || 'color';
       this.form.vocal_mode = this.review.vocal_mode || 'instrumental';
       this.form.title_secondary = this.review.title_secondary || '';
+      this.form.title_size = this.review.title_size || 110;
+      this.form.pill_size = this.review.pill_size || 38;
+      this.form.thumb_bg = this.review.thumb_bg || 'youtube';
       this.thumbSrc = this.review.thumbnail_url + '?_=' + Date.now();
       this.reviewLoaded = true;
       this.reparse();
@@ -466,7 +486,7 @@ function norchid() {
     async refreshThumb() {
       try {
         const r = await fetch(`/api/jobs/${this.jobId}/thumbnail-preview`, { method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ title_secondary: this.form.title_secondary, title_size: this.form.title_size }) });
+          body: JSON.stringify({ title_secondary: this.form.title_secondary, title_size: this.form.title_size, pill_size: this.form.pill_size, thumb_bg: this.form.thumb_bg }) });
         if (!r.ok) return;
         if (this._thumbBlob) URL.revokeObjectURL(this._thumbBlob);
         this._thumbBlob = URL.createObjectURL(await r.blob());
@@ -484,6 +504,7 @@ function norchid() {
         body: JSON.stringify({ lrc: this.form.lrc, romaji: this.form.romaji, offset_ms: this.form.offset_ms,
           vocal_mode: this.form.vocal_mode, bg_mode: this.form.bg_mode,
           title_secondary: this.form.title_secondary, title_size: this.form.title_size,
+          pill_size: this.form.pill_size, thumb_bg: this.form.thumb_bg,
           lyric_size: this.form.lyric_size }) });
       this.job.status = 'running'; this.job.stage = 'rendering';
       this.startPolling();

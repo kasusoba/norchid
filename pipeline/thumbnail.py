@@ -81,15 +81,17 @@ def _pill_color(yt_thumb: Path | None, bg_color) -> tuple[int, int, int]:
     return tuple(round(c * 255) for c in (r, g, b))
 
 
-def _yt_canvas(yt_thumb: Path) -> Image.Image:
-    img = Image.open(yt_thumb).convert("RGB")
+def _image_canvas(img: Image.Image, blur: int = 0, brightness: float = 0.78) -> Image.Image:
+    """Scale + center-crop to fill 16:9, darken (+ optional blur) for white text."""
     scale = max(W / img.width, H / img.height)
     img = img.resize((int(img.width * scale), int(img.height * scale)))
     left = (img.width - W) // 2
     top = (img.height - H) // 2
     img = img.crop((left, top, left + W, top + H))
-    # Even darken + a stronger center band so the white title reads cleanly.
-    img = ImageEnhance.Brightness(img).enhance(0.78)
+    if blur:
+        img = img.filter(ImageFilter.GaussianBlur(blur))
+    img = ImageEnhance.Brightness(img).enhance(brightness)
+    # A stronger center band so the white title reads cleanly.
     overlay = Image.new("L", (1, H), 0)
     for y in range(H):
         d = 1 - abs((y - H * 0.5) / (H / 2))
@@ -97,6 +99,15 @@ def _yt_canvas(yt_thumb: Path) -> Image.Image:
     overlay = overlay.resize((W, H))
     black = Image.new("RGB", (W, H), (0, 0, 0))
     return Image.composite(black, img, overlay).convert("RGBA")
+
+
+def _yt_canvas(yt_thumb: Path) -> Image.Image:
+    return _image_canvas(Image.open(yt_thumb).convert("RGB"))
+
+
+def _cover_canvas(cover: Path) -> Image.Image:
+    """Album cover blurred + extended to fill 16:9, as a background for the title."""
+    return _image_canvas(Image.open(cover).convert("RGB"), blur=22, brightness=0.62)
 
 
 def download_yt_thumb(url: str | None, work_dir: Path) -> Path | None:
@@ -152,10 +163,18 @@ def _bracket_jp(text: str) -> str:
 
 
 def make_cinematic(title: str, secondary: str | None, yt_thumb: Path | None,
-                   bg_color, out: Path, title_size: int = config.THUMB_TITLE_SIZE) -> Path:
-    canvas = _yt_canvas(yt_thumb) if yt_thumb else \
-        Image.new("RGBA", (W, H), tuple(bg_color) + (255,))
-    pill_rgb = _pill_color(yt_thumb, bg_color)
+                   bg_color, out: Path, title_size: int = config.THUMB_TITLE_SIZE,
+                   cover: Path | None = None, bg_source: str = "youtube",
+                   pill_size: int = config.THUMB_PILL_SIZE) -> Path:
+    # Background: YouTube thumbnail (default) or the album cover, blurred-extended.
+    use_cover = bg_source == "cover" and cover and Path(cover).exists()
+    if use_cover:
+        canvas, pill_src = _cover_canvas(cover), cover
+    elif yt_thumb:
+        canvas, pill_src = _yt_canvas(yt_thumb), yt_thumb
+    else:
+        canvas, pill_src = Image.new("RGBA", (W, H), tuple(bg_color) + (255,)), None
+    pill_rgb = _pill_color(pill_src, bg_color)
 
     secondary = (secondary or "").strip()
     has_sec = bool(secondary)
@@ -172,7 +191,8 @@ def make_cinematic(title: str, secondary: str | None, yt_thumb: Path | None,
         sec_font, sec_lines, sec_lh = _fit(sec_text, int(W * 0.86), int(H * 0.22), sec_size)
         sec_h = int(sec_lh * 1.14 * len(sec_lines)) + 8
 
-    pill_font = _font(38, "Instrumental")
+    pill_size = max(20, min(80, int(pill_size or config.THUMB_PILL_SIZE)))
+    pill_font = _font(pill_size, "Instrumental")
     pill_h = _measure("Instrumental", pill_font)[1] + 30
     main_h = int(main_lh * 1.14 * len(main_lines))
     stack_h = main_h + sec_h + 28 + pill_h
@@ -182,16 +202,20 @@ def make_cinematic(title: str, secondary: str | None, yt_thumb: Path | None,
     if has_sec:
         y = _draw_center_block(canvas, sec_lines, sec_font, sec_lh, y + 8,
                                fill=(244, 244, 246, 255))
-    _pill(canvas, "Instrumental", pill_font, y + 22, pill_rgb)
+    _pill(canvas, "Instrumental", pill_font, y + 22, pill_rgb,
+          pad=(round(pill_size * 0.9), round(pill_size * 0.4)))
     canvas.convert("RGB").save(out)
     return out
 
 
 def make_thumbnail(meta: dict, work_dir: Path, bg_color, out: Path,
                    yt_thumb: Path | None = None, secondary: str | None = None,
-                   title_size: int = config.THUMB_TITLE_SIZE) -> Path:
+                   title_size: int = config.THUMB_TITLE_SIZE,
+                   cover: Path | None = None, bg_source: str = "youtube",
+                   pill_size: int = config.THUMB_PILL_SIZE) -> Path:
     title = meta.get("title") or "Untitled"
     if yt_thumb is None:
         yt_thumb = download_yt_thumb(meta.get("yt_thumbnail_url"), work_dir)
     sec = secondary if secondary is not None else meta.get("title_secondary")
-    return make_cinematic(title, sec, yt_thumb, bg_color, out, title_size=title_size)
+    return make_cinematic(title, sec, yt_thumb, bg_color, out, title_size=title_size,
+                          cover=cover, bg_source=bg_source, pill_size=pill_size)

@@ -28,6 +28,10 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="optional Japanese/secondary thumbnail title (auto-fetched if omitted)")
     p.add_argument("--title-size", type=int, default=config.THUMB_TITLE_SIZE,
                    help="cinematic thumbnail title size (px)")
+    p.add_argument("--pill-size", type=int, default=config.THUMB_PILL_SIZE,
+                   help="thumbnail 'Instrumental' pill font size (px)")
+    p.add_argument("--thumb-bg", default="youtube", choices=list(config.THUMB_BG_SOURCES),
+                   help="thumbnail background: youtube thumbnail or album cover")
     p.add_argument("--lyric-size", type=int, default=0,
                    help="lyric font size (px, 0 = default)")
     p.add_argument("--vocal-mode", default="instrumental",
@@ -76,7 +80,7 @@ def main(argv=None) -> int:
             lrc=lrc, romaji=romaji, offset_ms=args.offset_ms,
             vocal_mode=args.vocal_mode, bg_mode=args.bg_mode,
             title_secondary=args.title_secondary, title_size=args.title_size,
-            lyric_size=args.lyric_size,
+            pill_size=args.pill_size, thumb_bg=args.thumb_bg, lyric_size=args.lyric_size,
             log=log, stage=stage)
     except Exception as e:  # noqa: BLE001
         print(f"\nERROR: {e}", file=sys.stderr)

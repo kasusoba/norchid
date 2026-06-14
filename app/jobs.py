@@ -33,6 +33,8 @@ class Job:
     bg_mode: str = config.DEFAULT_BG_MODE
     title_secondary: str = ""
     title_size: int = config.THUMB_TITLE_SIZE
+    pill_size: int = config.THUMB_PILL_SIZE
+    thumb_bg: str = "youtube"
     lyric_size: int = 0   # 0 = default scroll font size
     outputs: dict = field(default_factory=dict)
     logs: list = field(default_factory=list)
@@ -113,6 +115,9 @@ class JobManager:
             "backgrounds": backgrounds,
             "title_secondary": job.meta.get("title_secondary", ""),
             "title_size": job.title_size,
+            "pill_size": job.pill_size,
+            "thumb_bg": job.thumb_bg,
+            "has_cover": bool(ctx.get("cover")),
             "thumbnail_url": f"{a}/thumb_cinematic.png",
             "instrumental_url": f"{a}/instrumental.wav",
             "vocal_url": f"{a}/vocals.wav" if ctx.get("vocal") else None,
@@ -136,7 +141,7 @@ class JobManager:
         return None
 
     def submit_review(self, job: Job, *, lrc, romaji, offset_ms, vocal_mode, bg_mode,
-                      title_secondary, title_size, lyric_size) -> None:
+                      title_secondary, title_size, pill_size, thumb_bg, lyric_size) -> None:
         job.lrc = lrc
         job.romaji = romaji
         job.offset_ms = int(offset_ms or 0)
@@ -145,6 +150,8 @@ class JobManager:
         job.title_secondary = (title_secondary or "").strip()
         job.meta["title_secondary"] = job.title_secondary
         job.title_size = int(title_size or config.THUMB_TITLE_SIZE)
+        job.pill_size = int(pill_size or config.THUMB_PILL_SIZE)
+        job.thumb_bg = thumb_bg if thumb_bg in config.THUMB_BG_SOURCES else "youtube"
         job.lyric_size = int(lyric_size or 0)
         job.status = "running"
         job.stage = "rendering"
@@ -192,6 +199,7 @@ class JobManager:
                         lrc=job.lrc, romaji=job.romaji, offset_ms=job.offset_ms,
                         vocal_mode=job.vocal_mode, bg_mode=job.bg_mode,
                         title_secondary=job.title_secondary, title_size=job.title_size,
+                        pill_size=job.pill_size, thumb_bg=job.thumb_bg,
                         lyric_size=job.lyric_size,
                         log=log, stage=stage, progress=progress)
                     job.outputs = outputs

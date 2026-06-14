@@ -23,6 +23,8 @@ dependencies = [
 [project.optional-dependencies]
 # Phase 4: word-level karaoke wipe
 wordwipe = ["whisperx"]
+# Headless browser tests for the live preview (scripts/preview_*test.py)
+test = ["playwright>=1.40"]
 
 [project.scripts]
 norchid = "app.cli:main"

@@ -20,6 +20,17 @@ WEB = config.ROOT / "web"
 app = FastAPI(title="norchid", version="0.1.0")
 
 
+@app.middleware("http")
+async def _no_cache_frontend(request, call_next):
+    """Force revalidation of the SPA + static assets so a code change is never
+    masked by a stale browser cache (the inline JS lives in index.html)."""
+    response = await call_next(request)
+    path = request.url.path
+    if path == "/" or path.startswith("/static") or path.startswith("/fonts"):
+        response.headers["Cache-Control"] = "no-store, must-revalidate"
+    return response
+
+
 class CreateJob(BaseModel):
     youtube_url: str
     sep_model: str = config.DEFAULT_SEP_MODEL

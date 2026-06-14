@@ -46,6 +46,8 @@ class ReviewSubmit(BaseModel):
     title_size: int = config.THUMB_TITLE_SIZE
     pill_size: int = config.THUMB_PILL_SIZE
     thumb_bg: str = "youtube"
+    bg_color: list | None = None
+    pill_color: list | None = None
     lyric_size: int = 0
 
 
@@ -55,6 +57,7 @@ class PreviewFrame(BaseModel):
     offset_ms: int = 0
     t: float = 0.0
     bg_mode: str = config.DEFAULT_BG_MODE
+    bg_color: list | None = None
     lyric_size: int = 0
 
 
@@ -132,6 +135,7 @@ def submit_review(jid: str, body: ReviewSubmit):
                           vocal_mode=body.vocal_mode, bg_mode=body.bg_mode,
                           title_secondary=body.title_secondary, title_size=body.title_size,
                           pill_size=body.pill_size, thumb_bg=body.thumb_bg,
+                          bg_color=body.bg_color, pill_color=body.pill_color,
                           lyric_size=body.lyric_size)
     return {"ok": True, "job_id": job.id}
 
@@ -151,7 +155,8 @@ def thumbnail_preview(jid: str, body: dict):
                                  secondary=(body or {}).get("title_secondary", ""),
                                  title_size=int((body or {}).get("title_size") or config.THUMB_TITLE_SIZE),
                                  pill_size=int((body or {}).get("pill_size") or config.THUMB_PILL_SIZE),
-                                 bg_source=(body or {}).get("thumb_bg", "youtube"))
+                                 bg_source=(body or {}).get("thumb_bg", "youtube"),
+                                 pill_color=(body or {}).get("pill_color"))
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, f"thumbnail render failed: {e}")
     return FileResponse(out, headers={"Cache-Control": "no-store"})
@@ -177,11 +182,14 @@ def preview_frame(jid: str, body: PreviewFrame):
     job = manager.get(jid)
     if not job or not job.ctx:
         raise HTTPException(404, "job not ready")
-    from pipeline import ass_render, video
+    from pipeline import artwork, ass_render, video
     work_dir = config.WORKSPACE / jid
     ctx = job.ctx
     backgrounds = ctx.get("backgrounds", {"color": ctx["background"]})
     background = backgrounds.get(body.bg_mode) or ctx["background"]
+    if body.bg_mode == "color" and body.bg_color:
+        background = artwork.make_flat_background(tuple(body.bg_color),
+                                                  work_dir / "preview_bg.png")
     out = work_dir / "preview_frame.png"
     try:
         ass_path = None

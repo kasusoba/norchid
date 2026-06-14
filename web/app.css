@@ -132,6 +132,9 @@ video { width: 100%; border-radius: 10px; border: 1px solid var(--line); backgro
 .bgsel button.on { border-color: var(--accent); color: var(--text); }
 .bgsel button:disabled { opacity: .4; cursor: not-allowed; }
 .thumb-preview { width: 100%; border-radius: 10px; border: 1px solid var(--line); display: block; }
+.swatches { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 9px; }
+.swatch-btn { width: 28px; height: 28px; border-radius: 7px; border: 2px solid var(--line); cursor: pointer; padding: 0; }
+.swatch-btn.on { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
 
 /* polished range sliders (scrubber + size controls) */
 input[type=range] {

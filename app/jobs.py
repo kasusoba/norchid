@@ -16,14 +16,14 @@ from pathlib import Path
 from queue import Queue
 
 from app import config
-from pipeline import lyrics, runner
+from pipeline import artwork, lyrics, runner
 
 # Persisted, machine-portable per-job state (the heavy artifacts already live in
 # workspace/<id>/; we only need the metadata to rehydrate a job after a restart).
 _PERSIST_FIELDS = ("url", "sep_model", "status", "stage", "meta", "offset_ms",
                    "vocal_mode", "bg_mode", "title_secondary", "title_size",
-                   "pill_size", "thumb_bg", "lyric_size", "lrc", "romaji",
-                   "lrc_candidates", "outputs", "error")
+                   "pill_size", "thumb_bg", "pill_color", "lyric_size", "lrc",
+                   "romaji", "lrc_candidates", "outputs", "error")
 _BG_FILES = {"color": "background.png", "cover": "bg_cover.png",
              "thumbnail": "bg_thumbnail.png"}
 
@@ -51,12 +51,14 @@ def _rebuild_ctx(job: "Job", duration: float, cover_url, sep_model_file) -> dict
         from pipeline import video
         duration = video.probe_duration(inst)
     backgrounds = {m: wd / f for m, f in _BG_FILES.items() if (wd / f).exists()}
+    cover = (wd / "cover.jpg") if (wd / "cover.jpg").exists() else None
     return {
         "meta": job.meta, "duration": duration, "instrumental": inst,
+        "palette": artwork.palette(cover) if cover else [],
         "vocal": (wd / "vocals.wav") if (wd / "vocals.wav").exists() else None,
         "sep_model_file": sep_model_file,
         "lrc": job.lrc, "lrc_candidates": job.lrc_candidates,
-        "cover": (wd / "cover.jpg") if (wd / "cover.jpg").exists() else None,
+        "cover": cover,
         "cover_url": cover_url, "bg_color": tuple(job.bg_color),
         "background": backgrounds.get("color") or (wd / "background.png"),
         "backgrounds": backgrounds,
@@ -94,6 +96,7 @@ class Job:
     title_size: int = config.THUMB_TITLE_SIZE
     pill_size: int = config.THUMB_PILL_SIZE
     thumb_bg: str = "youtube"
+    pill_color: tuple | None = None   # None = auto (sampled from background)
     lyric_size: int = 0   # 0 = default scroll font size
     outputs: dict = field(default_factory=dict)
     logs: list = field(default_factory=list)
@@ -215,6 +218,9 @@ class JobManager:
             "title_size": job.title_size,
             "pill_size": job.pill_size,
             "thumb_bg": job.thumb_bg,
+            "pill_color": list(job.pill_color) if job.pill_color else None,
+            "bg_swatches": [list(artwork.clamp_color(c)) for c in ctx.get("palette", [])],
+            "pill_swatches": [list(artwork.mute_for_pill(c)) for c in ctx.get("palette", [])],
             "has_cover": bool(ctx.get("cover")),
             "thumbnail_url": f"{a}/thumb_cinematic.png",
             "instrumental_url": f"{a}/instrumental.wav",
@@ -239,7 +245,8 @@ class JobManager:
         return None
 
     def submit_review(self, job: Job, *, lrc, romaji, offset_ms, vocal_mode, bg_mode,
-                      title_secondary, title_size, pill_size, thumb_bg, lyric_size) -> None:
+                      title_secondary, title_size, pill_size, thumb_bg, lyric_size,
+                      bg_color=None, pill_color=None) -> None:
         job.lrc = lrc
         job.romaji = romaji
         job.offset_ms = int(offset_ms or 0)
@@ -250,6 +257,9 @@ class JobManager:
         job.title_size = int(title_size or config.THUMB_TITLE_SIZE)
         job.pill_size = int(pill_size or config.THUMB_PILL_SIZE)
         job.thumb_bg = thumb_bg if thumb_bg in config.THUMB_BG_SOURCES else "youtube"
+        if bg_color:
+            job.bg_color = tuple(bg_color)
+        job.pill_color = tuple(pill_color) if pill_color else None
         job.lyric_size = int(lyric_size or 0)
         job.status = "running"
         job.stage = "rendering"
@@ -299,6 +309,7 @@ class JobManager:
                         vocal_mode=job.vocal_mode, bg_mode=job.bg_mode,
                         title_secondary=job.title_secondary, title_size=job.title_size,
                         pill_size=job.pill_size, thumb_bg=job.thumb_bg,
+                        bg_color=job.bg_color, pill_color=job.pill_color,
                         lyric_size=job.lyric_size,
                         log=log, stage=stage, progress=progress)
                     job.outputs = outputs

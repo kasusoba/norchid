@@ -109,6 +109,44 @@ def _luma(rgb) -> float:
     return (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
 
 
+def _sat(rgb) -> float:
+    return colorsys.rgb_to_hsv(*(x / 255 for x in rgb[:3]))[1]
+
+
+def _far(rgb, existing, thresh=46) -> bool:
+    return all(sum((a - b) ** 2 for a, b in zip(rgb, e)) ** 0.5 > thresh for e in existing)
+
+
+def palette(cover_path: Path, n: int = 6) -> list[tuple[int, int, int]]:
+    """Prominent distinct colours from the cover — the muted dominant *and* the
+    vibrant accents, so the user can pick one the auto-pick would skip."""
+    img = Image.open(cover_path).convert("RGB")
+    img.thumbnail((180, 180))
+    quant = img.quantize(colors=16, method=Image.Quantize.MEDIANCUT).convert("RGB")
+    colors = sorted(quant.getcolors(maxcolors=4096) or [], reverse=True)  # by count
+    if not colors:
+        return [dominant_color(cover_path)]
+    out: list[tuple] = [dominant_color(cover_path)]
+    # Inject the most saturated prominent colour (the accent) near the front.
+    vivid = max(colors, key=lambda c: _sat(c[1]) * (c[0] ** 0.4))[1]
+    if _far(vivid, out):
+        out.append(vivid)
+    for _, rgb in colors:
+        if len(out) >= n:
+            break
+        if _far(rgb, out):
+            out.append(rgb)
+    return out[:n]
+
+
+def mute_for_pill(rgb) -> tuple[int, int, int]:
+    """A muted mid-tone of a colour for the 'Instrumental' pill."""
+    h, s, v = colorsys.rgb_to_hsv(*(x / 255 for x in rgb[:3]))
+    s = min(s, 0.6)
+    v = 0.62
+    return tuple(round(c * 255) for c in colorsys.hsv_to_rgb(h, s, v))
+
+
 def clamp_color(rgb: tuple[int, int, int]) -> tuple[int, int, int]:
     """Luma/saturation clamp for legible white text (BRANDING §4)."""
     r, g, b = (x / 255.0 for x in rgb[:3])
@@ -178,9 +216,8 @@ def background_for(artist: str, title: str, work_dir: Path) -> dict:
              "bg_color": (r,g,b), "background": Path}.
     """
     cover, url = fetch_cover(artist, title, work_dir)
-    if cover:
-        rgb = clamp_color(dominant_color(cover))
-    else:
-        rgb = (38, 48, 66)  # neutral fallback field
+    pal = palette(cover) if cover else [(38, 48, 66)]
+    rgb = clamp_color(pal[0]) if cover else (38, 48, 66)
     bg = make_flat_background(rgb, work_dir / "background.png")
-    return {"cover": cover, "cover_url": url, "bg_color": rgb, "background": bg}
+    return {"cover": cover, "cover_url": url, "bg_color": rgb, "background": bg,
+            "palette": pal}

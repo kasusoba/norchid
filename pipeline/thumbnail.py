@@ -183,7 +183,7 @@ def _bracket_jp(text: str) -> str:
 def make_cinematic(title: str, secondary: str | None, yt_thumb: Path | None,
                    bg_color, out: Path, title_size: int = config.THUMB_TITLE_SIZE,
                    cover: Path | None = None, bg_source: str = "youtube",
-                   pill_size: int = config.THUMB_PILL_SIZE) -> Path:
+                   pill_size: int = config.THUMB_PILL_SIZE, pill_color=None) -> Path:
     # Background: YouTube thumbnail (default), cover blurred-fill, or cover boxed.
     have_cover = cover and Path(cover).exists()
     if bg_source == "cover_boxed" and have_cover:
@@ -194,7 +194,7 @@ def make_cinematic(title: str, secondary: str | None, yt_thumb: Path | None,
         canvas, pill_src = _yt_canvas(yt_thumb), yt_thumb
     else:
         canvas, pill_src = Image.new("RGBA", (W, H), tuple(bg_color) + (255,)), None
-    pill_rgb = _pill_color(pill_src, bg_color)
+    pill_rgb = tuple(pill_color) if pill_color else _pill_color(pill_src, bg_color)
 
     secondary = (secondary or "").strip()
     has_sec = bool(secondary)
@@ -232,10 +232,11 @@ def make_thumbnail(meta: dict, work_dir: Path, bg_color, out: Path,
                    yt_thumb: Path | None = None, secondary: str | None = None,
                    title_size: int = config.THUMB_TITLE_SIZE,
                    cover: Path | None = None, bg_source: str = "youtube",
-                   pill_size: int = config.THUMB_PILL_SIZE) -> Path:
+                   pill_size: int = config.THUMB_PILL_SIZE, pill_color=None) -> Path:
     title = meta.get("title") or "Untitled"
     if yt_thumb is None:
         yt_thumb = download_yt_thumb(meta.get("yt_thumbnail_url"), work_dir)
     sec = secondary if secondary is not None else meta.get("title_secondary")
     return make_cinematic(title, sec, yt_thumb, bg_color, out, title_size=title_size,
-                          cover=cover, bg_source=bg_source, pill_size=pill_size)
+                          cover=cover, bg_source=bg_source, pill_size=pill_size,
+                          pill_color=pill_color)

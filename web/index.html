@@ -106,6 +106,12 @@
             ⟳ exact
           </button>
         </div>
+        <div class="swatches" x-show="form.bg_mode==='color' && (review.bg_swatches||[]).length">
+          <template x-for="(c,i) in review.bg_swatches" :key="i">
+            <button class="swatch-btn" :class="sameColor(form.bg_color, c) && 'on'"
+                    :style="`background:rgb(${c.join(',')})`" @click="pickBgColor(c)"></button>
+          </template>
+        </div>
         <div class="spacer"></div>
         <button class="btn green block" @click="submitReview()">Render video →</button>
       </div>
@@ -199,6 +205,16 @@
           </div>
         </div>
         <div class="spacer"></div>
+        <label>Pill color</label>
+        <div class="swatches">
+          <button class="swatch-btn" :class="!form.pill_color && 'on'" @click="pickPillColor(null)" title="auto"
+                  style="background:repeating-linear-gradient(45deg,#555,#555 5px,#888 5px,#888 10px)"></button>
+          <template x-for="(c,i) in (review.pill_swatches||[])" :key="i">
+            <button class="swatch-btn" :class="sameColor(form.pill_color, c) && 'on'"
+                    :style="`background:rgb(${c.join(',')})`" @click="pickPillColor(c)"></button>
+          </template>
+        </div>
+        <div class="spacer"></div>
         <img class="thumb-preview" :src="thumbSrc" alt="thumbnail preview" />
       </div>
     </div>
@@ -246,7 +262,7 @@ function norchid() {
   return {
     cfg: { models: [], default: 'roformer', thumb_bg_sources: [] },
     rcfg: { width: 1920, height: 1080, scroll: { font_size: 60, line_gap_ratio: 1.733, line_gap_ratio_romaji: 2.55, romaji_size_ratio: 0.52, romaji_offset_ratio: 0.92, visible_radius: 6, transition_ms: 240, alpha_active: 0, alpha_passed: 0.66, alpha_upcoming: 0.42 } },
-    form: { url: '', sep_model: 'roformer', lrc: '', romaji: '', offset_ms: 0, vocal_mode: 'instrumental', bg_mode: 'color', title_secondary: '', title_size: 110, pill_size: 38, thumb_bg: 'youtube', lyric_size: 60 },
+    form: { url: '', sep_model: 'roformer', lrc: '', romaji: '', offset_ms: 0, vocal_mode: 'instrumental', bg_mode: 'color', bg_color: null, title_secondary: '', title_size: 110, pill_size: 38, thumb_bg: 'youtube', pill_color: null, lyric_size: 60 },
     romajiLines: [],
     jobId: null,
     jobList: [],
@@ -279,6 +295,10 @@ function norchid() {
                queued:'Queued…'})[this.job.stage] || 'Working…';
     },
     get bgStyle() {
+      if (this.form.bg_mode === 'color') {
+        const c = this.form.bg_color || this.review.bg_color || [38,48,66];
+        return `background-color: rgb(${c.join(',')})`;
+      }
       const b = (this.review.backgrounds || []).find(x => x.id === this.form.bg_mode);
       return b && b.available ? `background-image:url(${b.url})` : '';
     },
@@ -327,6 +347,8 @@ function norchid() {
       this.form.lyric_size = this.review.lyric_size || this.rcfg.scroll.font_size;
       this.form.offset_ms = this.review.offset_ms || 0;
       this.form.bg_mode = this.review.bg_mode || 'color';
+      this.form.bg_color = this.review.bg_color || null;
+      this.form.pill_color = this.review.pill_color || null;
       this.form.vocal_mode = this.review.vocal_mode || 'instrumental';
       this.form.title_secondary = this.review.title_secondary || '';
       this.form.title_size = this.review.title_size || 110;
@@ -517,6 +539,9 @@ function norchid() {
       else { v.pause(); }
     },
     pickBg(id) { const b=this.review.backgrounds.find(x=>x.id===id); if (b && b.available) { this.form.bg_mode = id; this.clearRealFrame(); } },
+    pickBgColor(rgb) { this.form.bg_color = rgb.slice(); this.form.bg_mode = 'color'; this.clearRealFrame(); },
+    pickPillColor(rgb) { this.form.pill_color = rgb ? rgb.slice() : null; this.refreshThumb(); },
+    sameColor(a, b) { return a && b && a[0]===b[0] && a[1]===b[1] && a[2]===b[2]; },
     onLrcChange() { this.reparse(); this.clearRealFrame(); this._dirty = true; },
     onRomajiChange() { this.reparse(); this.clearRealFrame(); this._dirty = true; },
     onOffsetChange() { this.reparse(); this.clearRealFrame(); },
@@ -526,7 +551,7 @@ function norchid() {
     async refreshRealFrame() {
       try {
         const r = await fetch(`/api/jobs/${this.jobId}/preview-frame`, { method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ lrc: this.form.lrc, romaji: this.form.romaji, offset_ms: this.form.offset_ms, t: this.curTime(), bg_mode: this.form.bg_mode, lyric_size: this.form.lyric_size }) });
+          body: JSON.stringify({ lrc: this.form.lrc, romaji: this.form.romaji, offset_ms: this.form.offset_ms, t: this.curTime(), bg_mode: this.form.bg_mode, bg_color: this.form.bg_color, lyric_size: this.form.lyric_size }) });
         if (!r.ok) return;
         if (this.realFrame) URL.revokeObjectURL(this.realFrame);
         this.realFrame = URL.createObjectURL(await r.blob());
@@ -537,7 +562,7 @@ function norchid() {
     async refreshThumb() {
       try {
         const r = await fetch(`/api/jobs/${this.jobId}/thumbnail-preview`, { method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ title_secondary: this.form.title_secondary, title_size: this.form.title_size, pill_size: this.form.pill_size, thumb_bg: this.form.thumb_bg }) });
+          body: JSON.stringify({ title_secondary: this.form.title_secondary, title_size: this.form.title_size, pill_size: this.form.pill_size, thumb_bg: this.form.thumb_bg, pill_color: this.form.pill_color }) });
         if (!r.ok) return;
         if (this._thumbBlob) URL.revokeObjectURL(this._thumbBlob);
         this._thumbBlob = URL.createObjectURL(await r.blob());
@@ -554,6 +579,7 @@ function norchid() {
       await fetch(`/api/jobs/${this.jobId}/review`, { method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ lrc: this.form.lrc, romaji: this.form.romaji, offset_ms: this.form.offset_ms,
           vocal_mode: this.form.vocal_mode, bg_mode: this.form.bg_mode,
+          bg_color: this.form.bg_color, pill_color: this.form.pill_color,
           title_secondary: this.form.title_secondary, title_size: this.form.title_size,
           pill_size: this.form.pill_size, thumb_bg: this.form.thumb_bg,
           lyric_size: this.form.lyric_size }) });

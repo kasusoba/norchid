@@ -91,6 +91,7 @@ def prepare(url: str, work_dir: Path, sep_model: str = config.DEFAULT_SEP_MODEL,
         "bg_color": art["bg_color"],
         "background": art["background"],
         "backgrounds": backgrounds,
+        "palette": art.get("palette", []),
         "yt_thumb": yt_thumb,
     }
 
@@ -102,6 +103,7 @@ def finalize(ctx: dict, work_dir: Path, out_dir: Path, *,
              title_secondary: str | None = None,
              title_size: int = config.THUMB_TITLE_SIZE,
              pill_size: int = config.THUMB_PILL_SIZE, thumb_bg: str = "youtube",
+             bg_color=None, pill_color=None,
              lyric_size: int | None = None,
              log: Log = _noop, stage: Stage = _noop, progress: Progress = _noop) -> dict:
     """Render the video + thumbnail from the (possibly user-edited) review state."""
@@ -122,6 +124,9 @@ def finalize(ctx: dict, work_dir: Path, out_dir: Path, *,
 
     backgrounds = ctx.get("backgrounds", {"color": ctx["background"]})
     background = backgrounds.get(bg_mode) or ctx["background"]
+    # Flat-colour background uses the user-picked palette colour.
+    if bg_mode == "color" and bg_color:
+        background = artwork.make_flat_background(tuple(bg_color), work_dir / "background.png")
     log(f"  background mode={bg_mode if bg_mode in backgrounds else 'color (fallback)'}")
 
     log(f"Building audio track (mode={vocal_mode})…")
@@ -143,7 +148,7 @@ def finalize(ctx: dict, work_dir: Path, out_dir: Path, *,
     thumbnail.make_thumbnail(ctx["meta"], work_dir, ctx["bg_color"], out_thumb,
                              yt_thumb=ctx.get("yt_thumb"), secondary=sec,
                              title_size=title_size, cover=ctx.get("cover"),
-                             bg_source=thumb_bg, pill_size=pill_size)
+                             bg_source=thumb_bg, pill_size=pill_size, pill_color=pill_color)
     progress(0.95)
 
     outputs = _collect(out_dir, ctx["meta"], out_video, out_thumb, ctx["instrumental"])

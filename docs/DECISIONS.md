@@ -15,7 +15,7 @@ Locked decisions from the planning session, with rationale. (Newest context wins
 | D9 | **Video bg = flat album-derived color + luma clamp** | Spotify lyrics look. Darken near-white covers toward grey so white text stays legible. |
 | D10 | **Lyrics always white: inactive ~45% / active 100%** | Spotify behavior; "always white, brighter when highlighted." |
 | D11 | **Fonts: Noto Sans CJK (lyrics) + Montserrat ExtraBold (Latin thumbnail titles, CJK fallback)** | Noto CJK = universal script coverage; Montserrat = punchy thumbnail look from references. |
-| D12 | **Thumbnail = 2 layouts (Cinematic / Album), no duration badge** | From user's two reference screenshots. Duration badge in ref was YouTube's overlay, not design. |
+| D12 | **Thumbnail = Cinematic only, no duration badge** | Originally 2 layouts; per build feedback the Album layout was dropped — only Cinematic (full-bleed YouTube image, clean white title with **no glow**, "Instrumental" title-case in a pill **filled with the background's dominant colour + drop shadow**). Optional Japanese/secondary title rendered under the title in 「」 (auto-suggested from iTunes JP, editable). |
 | D13 | **Cover art via iTunes Search API / Deezer** | Free, no key. Feeds both bg color and album-layout thumbnail. |
 | D14 | **Render: ffmpeg + libass, 1920×1080 @ 60fps, H.264/AAC** | Karaoke styling free via ASS; 60fps for smooth scroll fades. |
 | D15 | **Frontend: FULL Alpine.js, no build step** | Consistency > micro-optimization — avoid a mixed imperative/declarative codebase a reviewer would question. Alpine ~15kb, declarative, no build. |

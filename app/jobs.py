@@ -29,9 +29,9 @@ class Job:
     meta: dict = field(default_factory=dict)
     offset_ms: int = 0
     bg_color: tuple = (38, 48, 66)
-    thumbnail_layout: str = "cinematic"
     vocal_mode: str = "instrumental"
     bg_mode: str = config.DEFAULT_BG_MODE
+    title_secondary: str = ""
     outputs: dict = field(default_factory=dict)
     logs: list = field(default_factory=list)
     error: str | None = None
@@ -52,8 +52,8 @@ class Job:
             "meta": self.meta,
             "offset_ms": self.offset_ms,
             "bg_color": list(self.bg_color),
-            "thumbnail_layout": self.thumbnail_layout,
             "vocal_mode": self.vocal_mode,
+            "bg_mode": self.bg_mode,
             "outputs": {k: f"/api/files/{self.id}/{Path(v).name}"
                         for k, v in self.outputs.items()},
             "logs": self.logs[-200:],
@@ -105,12 +105,11 @@ class JobManager:
             "cover_url": ctx.get("cover_url"),
             "has_synced": bool(job.lrc),
             "candidates": [lyrics.candidate_summary(c) for c in job.lrc_candidates],
-            "thumbnail_layout": job.thumbnail_layout,
             "vocal_mode": job.vocal_mode,
             "bg_mode": job.bg_mode,
             "backgrounds": backgrounds,
-            "thumbnails": {"cinematic": f"{a}/thumb_cinematic.png",
-                           "album": f"{a}/thumb_album.png"},
+            "title_secondary": job.meta.get("title_secondary", ""),
+            "thumbnail_url": f"{a}/thumb_cinematic.png",
             "instrumental_url": f"{a}/instrumental.wav",
             "vocal_url": f"{a}/vocals.wav" if ctx.get("vocal") else None,
         }
@@ -119,7 +118,7 @@ class JobManager:
         """Resolve a whitelisted preview asset within the job workspace."""
         allowed = {"instrumental.wav", "vocals.wav", "background.png",
                    "bg_cover.png", "bg_thumbnail.png", "thumb_cinematic.png",
-                   "thumb_album.png", "cover.jpg", "yt_thumb.jpg"}
+                   "cover.jpg", "yt_thumb.jpg"}
         safe = Path(name).name
         if safe not in allowed:
             return None
@@ -132,13 +131,14 @@ class JobManager:
                 return c.get("syncedLyrics") or c.get("plainLyrics")
         return None
 
-    def submit_review(self, job: Job, *, lrc, offset_ms, thumbnail_layout,
-                      vocal_mode, bg_mode) -> None:
+    def submit_review(self, job: Job, *, lrc, offset_ms, vocal_mode, bg_mode,
+                      title_secondary) -> None:
         job.lrc = lrc
         job.offset_ms = int(offset_ms or 0)
-        job.thumbnail_layout = thumbnail_layout or "cinematic"
         job.vocal_mode = vocal_mode or "instrumental"
         job.bg_mode = bg_mode if bg_mode in config.BG_MODES else config.DEFAULT_BG_MODE
+        job.title_secondary = (title_secondary or "").strip()
+        job.meta["title_secondary"] = job.title_secondary
         job.status = "running"
         job.stage = "rendering"
         self._queue.put(("finalize", job.id))
@@ -183,8 +183,8 @@ class JobManager:
                     outputs = runner.finalize(
                         job.ctx, work_dir, out_dir,
                         lrc=job.lrc, offset_ms=job.offset_ms,
-                        layout=job.thumbnail_layout, vocal_mode=job.vocal_mode,
-                        bg_mode=job.bg_mode,
+                        vocal_mode=job.vocal_mode, bg_mode=job.bg_mode,
+                        title_secondary=job.title_secondary,
                         log=log, stage=stage, progress=progress)
                     job.outputs = outputs
                     job.status = "done"

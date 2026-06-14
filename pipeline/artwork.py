@@ -34,20 +34,44 @@ def fetch_cover(artist: str, title: str, work_dir: Path) -> tuple[Path | None, s
         return None, None
 
 
-def _itunes_cover(artist: str, title: str) -> str | None:
+def itunes_lookup(artist: str, title: str, country: str | None = None) -> dict | None:
+    """First iTunes song result for artist+title (cover + native trackName)."""
+    params = {"term": f"{artist} {title}".strip(), "entity": "song", "limit": 3}
+    if country:
+        params["country"] = country
     try:
         with httpx.Client(headers={"User-Agent": UA}, timeout=20.0) as c:
-            r = c.get("https://itunes.apple.com/search",
-                      params={"term": f"{artist} {title}".strip(),
-                              "entity": "song", "limit": 3})
-            results = r.json().get("results", [])
-        if not results:
-            return None
-        art = results[0].get("artworkUrl100")
-        # Upgrade the thumbnail to a large render.
-        return art.replace("100x100bb", "1000x1000bb") if art else None
+            results = c.get("https://itunes.apple.com/search", params=params).json().get("results", [])
+        return results[0] if results else None
     except Exception:
         return None
+
+
+def _itunes_cover(artist: str, title: str) -> str | None:
+    res = itunes_lookup(artist, title)
+    art = res.get("artworkUrl100") if res else None
+    return art.replace("100x100bb", "1000x1000bb") if art else None
+
+
+def _has_cjk(text: str) -> bool:
+    for ch in text or "":
+        o = ord(ch)
+        if (0x3040 <= o <= 0x30FF or 0x3400 <= o <= 0x9FFF
+                or 0xAC00 <= o <= 0xD7A3 or 0xF900 <= o <= 0xFAFF):
+            return True
+    return False
+
+
+def native_title(artist: str, title: str) -> str | None:
+    """A CJK 'native' track title from iTunes' JP store, if it differs from
+    ``title``. Returned as an editable suggestion (the user can fix/clear it)."""
+    res = itunes_lookup(artist, title, country="JP")
+    if not res:
+        return None
+    name = (res.get("trackName") or "").strip()
+    if name and _has_cjk(name) and name.lower() != (title or "").strip().lower():
+        return name
+    return None
 
 
 def _deezer_cover(artist: str, title: str) -> str | None:

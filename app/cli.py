@@ -24,8 +24,8 @@ def _build_parser() -> argparse.ArgumentParser:
                    choices=list(config.SEP_MODELS), help="separation model")
     p.add_argument("--offset", type=int, default=0, dest="offset_ms",
                    help="global lyric offset in ms (+ delays lyrics)")
-    p.add_argument("--layout", default="cinematic", choices=["cinematic", "album"],
-                   help="thumbnail layout")
+    p.add_argument("--title-secondary", default=None,
+                   help="optional Japanese/secondary thumbnail title (auto-fetched if omitted)")
     p.add_argument("--vocal-mode", default="instrumental",
                    choices=["instrumental", "guide"], help="guide-vocal mix")
     p.add_argument("--bg-mode", default=config.DEFAULT_BG_MODE,
@@ -67,7 +67,8 @@ def main(argv=None) -> int:
         outputs = runner.finalize(
             ctx, work_dir, out_dir,
             lrc=lrc, offset_ms=args.offset_ms,
-            layout=args.layout, vocal_mode=args.vocal_mode, bg_mode=args.bg_mode,
+            vocal_mode=args.vocal_mode, bg_mode=args.bg_mode,
+            title_secondary=args.title_secondary,
             log=log, stage=stage)
     except Exception as e:  # noqa: BLE001
         print(f"\nERROR: {e}", file=sys.stderr)

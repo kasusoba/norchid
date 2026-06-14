@@ -21,9 +21,16 @@ def _split_artist_title(info: dict) -> tuple[str, str]:
         return artist, title
 
     raw = (info.get("title") or "").strip()
-    # Strip common noise: "(Official Video)", "[MV]", "feat." kept.
-    cleaned = re.sub(r"\s*[\(\[][^)\]]*(official|video|audio|mv|lyric|m/?v)[^)\]]*[\)\]]",
-                     "", raw, flags=re.I).strip()
+    # Strip "(Official Video)", "[MV]", fullwidth "（OFFICIAL VIDEO）", "【MV】" etc.
+    # (feat. is kept). Handles ASCII () [] and CJK fullwidth （）【】 brackets.
+    noise = (r"\s*[\(\[（【][^)\]）】]*"
+             r"(?:official|video|audio|m/?v|lyric|music\s*video|full\s*ver|MV|"
+             r"オフィシャル|ミュージック\s*ビデオ|公式)"
+             r"[^)\]）】]*[\)\]）】]")
+    cleaned = re.sub(noise, "", raw, flags=re.I).strip()
+    # Trailing un-bracketed noise after a separator: "… / MUSIC VIDEO", "… : MV".
+    cleaned = re.sub(r"\s*[/:：\-–—]\s*(?:music\s*video|m/?v|official.*|lyric.*|audio)\s*$",
+                     "", cleaned, flags=re.I).strip()
     # "Artist - Title" / "Artist / Title" pattern.
     m = re.match(r"^(.*?)\s*[-–—/]\s*(.*)$", cleaned)
     if m:

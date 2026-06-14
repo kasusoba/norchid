@@ -101,11 +101,17 @@ video { width: 100%; border-radius: 10px; border: 1px solid var(--line); backgro
   overflow: hidden; border: 1px solid var(--line);
   background: #14161d center/cover no-repeat;
 }
+/* Inner layer rendered at true 1920x1080, then CSS-scaled to fit — so the
+   preview geometry is pixel-proportional to the libass render. */
+.preview .pv-canvas {
+  position: absolute; top: 0; left: 0; width: 1920px; height: 1080px;
+  transform-origin: top left;
+}
 .preview .line {
-  position: absolute; left: 50%; white-space: nowrap;
+  position: absolute; white-space: nowrap;
   transform: translate(-50%, -50%);
   font-family: "Noto Sans CJK JP", system-ui, sans-serif; font-weight: 700;
-  color: #fff; text-shadow: 0 2px 10px rgba(0,0,0,.55); pointer-events: none;
+  color: #fff; text-shadow: 2px 2px 4px rgba(0,0,0,.5); pointer-events: none;
   will-change: transform, opacity;
 }
 .preview .realframe {

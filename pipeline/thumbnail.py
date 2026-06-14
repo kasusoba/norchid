@@ -1,19 +1,14 @@
-"""Thumbnail generation (Pillow) — two layouts (BRANDING.md §2, DECISIONS D12).
+"""Cinematic thumbnail (Pillow) — matches the reference look (BRANDING.md §2).
 
-Matches the reference look: white text with a **soft glow** (not a hard stroke)
-and the Instrumental tag in a **rounded pill**.
-
-- "cinematic" (ref: Mela!): full-bleed darkened YouTube thumbnail, centered
-  title with an outline "Instrumental" pill beneath it.
-- "album" (ref: One Day): blurred-extended album cover with the cover readable,
-  a filled "instrumental" pill top-left, artist + title stacked bottom-left.
-
-Titles use Montserrat ExtraBold, falling back to Noto Sans CJK for CJK text.
-Output is 1280x720 PNG with no duration badge.
+Full-bleed darkened YouTube thumbnail; large clean white title (no glow), an
+optional Japanese/secondary title beneath it (rendered in 「」), and a filled
+"Instrumental" pill whose colour is sampled from the background, with a soft
+drop shadow. Output 1280x720 PNG, no duration badge.
 """
 
 from __future__ import annotations
 
+import colorsys
 import io
 from pathlib import Path
 
@@ -21,6 +16,7 @@ import httpx
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 
 from app import config
+from pipeline import artwork
 
 W, H = config.THUMB_W, config.THUMB_H
 UA = "norchid/0.1"
@@ -28,7 +24,7 @@ UA = "norchid/0.1"
 
 # --- fonts ----------------------------------------------------------------
 def _has_cjk(text: str) -> bool:
-    for ch in text:
+    for ch in text or "":
         o = ord(ch)
         if (0x3040 <= o <= 0x30FF or 0x3400 <= o <= 0x9FFF
                 or 0xAC00 <= o <= 0xD7A3 or 0xF900 <= o <= 0xFAFF):
@@ -54,88 +50,35 @@ def _wrap(text, font, max_w):
         if _measure(trial, font)[0] <= max_w or not cur:
             cur = trial
         else:
-            lines.append(cur)
-            cur = w
+            lines.append(cur); cur = w
     if cur:
         lines.append(cur)
     return lines or [text]
 
 
-def _fit_title(text, max_w, max_h, start_size):
+def _fit(text, max_w, max_h, start_size, min_size=26):
     size = start_size
-    while size > 26:
+    while size > min_size:
         font = _font(size, text)
         lines = _wrap(text, font, max_w)
-        line_h = _measure("Ay", font)[1]
-        total_h = int(line_h * 1.16 * len(lines))
-        if total_h <= max_h and all(_measure(ln, font)[0] <= max_w for ln in lines):
-            return font, lines, line_h
+        lh = _measure("Ay", font)[1]
+        if int(lh * 1.14 * len(lines)) <= max_h and \
+                all(_measure(ln, font)[0] <= max_w for ln in lines):
+            return font, lines, lh
         size -= 4
-    font = _font(size, text)
+    font = _font(min_size, text)
     return font, _wrap(text, font, max_w), _measure("Ay", font)[1]
 
 
-# --- soft-glow text -------------------------------------------------------
-def _glow_text(canvas: Image.Image, xy, text, font, fill=(255, 255, 255, 255),
-               anchor="la", glow=(0, 0, 0, 200), radius=12, passes=2):
-    """Draw text with a soft dark glow for legibility (RGBA canvas)."""
-    shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    ImageDraw.Draw(shadow).text(xy, text, font=font, fill=glow, anchor=anchor)
-    shadow = shadow.filter(ImageFilter.GaussianBlur(radius))
-    for _ in range(passes):
-        canvas.alpha_composite(shadow)
-    ImageDraw.Draw(canvas).text(xy, text, font=font, fill=fill, anchor=anchor)
-
-
-def _glow_block(canvas, lines, font, line_h, x, top, align="left",
-                fill=(255, 255, 255, 255), radius=12):
-    y = top
-    for ln in lines:
-        if align == "center":
-            _glow_text(canvas, (x, y), ln, font, fill=fill, anchor="ma", radius=radius)
-        else:
-            _glow_text(canvas, (x, y), ln, font, fill=fill, anchor="la", radius=radius)
-        y += int(line_h * 1.16)
-    return y
-
-
-def _pill(canvas, text, font, xy, anchor="la", pad=(20, 11),
-          fill=None, outline=None, ow=2, text_fill=(255, 255, 255, 255), radius=999):
-    """Rounded-pill label. anchor 'la' = top-left at xy, 'ma' = top-center at xy."""
-    tw, th = _measure(text, font)
-    bw, bh = tw + pad[0] * 2, th + pad[1] * 2
-    x = xy[0] - bw / 2 if anchor == "ma" else xy[0]
-    y = xy[1]
-    box = [x, y, x + bw, y + bh]
-    r = min(radius, bh / 2)
-    # Draw the (semi-transparent) pill on its own layer so alpha is respected
-    # — drawing directly on the RGBA canvas would overwrite the alpha channel.
-    layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    ImageDraw.Draw(layer).rounded_rectangle(box, radius=r, fill=fill,
-                                            outline=outline, width=ow)
-    canvas.alpha_composite(layer)
-    # Center text in the pill (account for glyph bbox offset).
-    bbox = font.getbbox(text)
-    ImageDraw.Draw(canvas).text((x + pad[0] - bbox[0], y + pad[1] - bbox[1]),
-                                text, font=font, fill=text_fill)
-    return box
-
-
-# --- backgrounds ----------------------------------------------------------
-def _cover_to_canvas(cover: Path) -> Image.Image:
-    src = Image.open(cover).convert("RGB")
-    bg = src.copy()
-    scale = max(W / bg.width, H / bg.height) * 1.1
-    bg = bg.resize((int(bg.width * scale), int(bg.height * scale)))
-    left = (bg.width - W) // 2
-    top = (bg.height - H) // 2
-    bg = bg.crop((left, top, left + W, top + H)).filter(ImageFilter.GaussianBlur(30))
-    bg = ImageEnhance.Brightness(bg).enhance(0.5)
-    fg = src.copy()
-    fg_size = int(H * 0.84)
-    fg.thumbnail((fg_size, fg_size))
-    bg.paste(fg, ((W - fg.width) // 2, (H - fg.height) // 2))
-    return bg.convert("RGBA")
+def _pill_color(yt_thumb: Path | None, bg_color) -> tuple[int, int, int]:
+    """A muted mid-tone sampled from the background image (ref look)."""
+    rgb = artwork.dominant_color(yt_thumb) if yt_thumb else tuple(bg_color)
+    r, g, b = (x / 255 for x in rgb[:3])
+    h, s, v = colorsys.rgb_to_hsv(r, g, b)
+    s = min(s, 0.55)          # mute saturation
+    v = 0.62                  # consistent mid brightness
+    r, g, b = colorsys.hsv_to_rgb(h, s, v)
+    return tuple(round(c * 255) for c in (r, g, b))
 
 
 def _yt_canvas(yt_thumb: Path) -> Image.Image:
@@ -145,11 +88,12 @@ def _yt_canvas(yt_thumb: Path) -> Image.Image:
     left = (img.width - W) // 2
     top = (img.height - H) // 2
     img = img.crop((left, top, left + W, top + H))
-    # Darken with a center-weighted gradient for title legibility.
+    # Even darken + a stronger center band so the white title reads cleanly.
+    img = ImageEnhance.Brightness(img).enhance(0.78)
     overlay = Image.new("L", (1, H), 0)
     for y in range(H):
-        d = 1 - abs((y - H * 0.52) / (H / 2))
-        overlay.putpixel((0, y), int(150 * max(0, d) + 55))
+        d = 1 - abs((y - H * 0.5) / (H / 2))
+        overlay.putpixel((0, y), int(120 * max(0, d)))
     overlay = overlay.resize((W, H))
     black = Image.new("RGB", (W, H), (0, 0, 0))
     return Image.composite(black, img, overlay).convert("RGBA")
@@ -168,50 +112,83 @@ def download_yt_thumb(url: str | None, work_dir: Path) -> Path | None:
         return None
 
 
-# --- layouts --------------------------------------------------------------
-def make_cinematic(title: str, yt_thumb: Path | None, bg_color, out: Path) -> Path:
+# --- drawing --------------------------------------------------------------
+def _draw_center_block(canvas, lines, font, lh, top, fill=(255, 255, 255, 255)):
+    d = ImageDraw.Draw(canvas)
+    y = top
+    for ln in lines:
+        d.text((W // 2, y), ln, font=font, fill=fill, anchor="ma")
+        y += int(lh * 1.14)
+    return y
+
+
+def _pill(canvas, text, font, top, fill_rgb, pad=(34, 15)):
+    tw, th = _measure(text, font)
+    bw, bh = tw + pad[0] * 2, th + pad[1] * 2
+    x = W / 2 - bw / 2
+    y = top
+    r = bh / 2
+    # Soft drop shadow.
+    sh = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    ImageDraw.Draw(sh).rounded_rectangle([x, y + 7, x + bw, y + bh + 7],
+                                         radius=r, fill=(0, 0, 0, 150))
+    canvas.alpha_composite(sh.filter(ImageFilter.GaussianBlur(9)))
+    # Pill.
+    layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    ImageDraw.Draw(layer).rounded_rectangle([x, y, x + bw, y + bh], radius=r,
+                                            fill=tuple(fill_rgb) + (255,))
+    canvas.alpha_composite(layer)
+    bbox = font.getbbox(text)
+    ImageDraw.Draw(canvas).text((x + pad[0] - bbox[0], y + pad[1] - bbox[1]),
+                                text, font=font, fill=(255, 255, 255, 255))
+    return bh
+
+
+def _bracket_jp(text: str) -> str:
+    t = text.strip()
+    if _has_cjk(t) and not (t.startswith("「") or t.startswith("『")):
+        return f"「{t}」"
+    return t
+
+
+def make_cinematic(title: str, secondary: str | None, yt_thumb: Path | None,
+                   bg_color, out: Path) -> Path:
     canvas = _yt_canvas(yt_thumb) if yt_thumb else \
         Image.new("RGBA", (W, H), tuple(bg_color) + (255,))
-    font, lines, line_h = _fit_title(title, int(W * 0.84), int(H * 0.46), 118)
-    block_h = int(line_h * 1.16 * len(lines))
-    top = int(H * 0.40) - block_h // 2
-    end_y = _glow_block(canvas, lines, font, line_h, W // 2, top, align="center", radius=16)
+    pill_rgb = _pill_color(yt_thumb, bg_color)
 
-    label_font = _font(38, "INSTRUMENTAL")
-    _pill(canvas, "INSTRUMENTAL", label_font, (W // 2, end_y + 26), anchor="ma",
-          pad=(26, 12), outline=(255, 255, 255, 210), ow=3, fill=(255, 255, 255, 26))
+    secondary = (secondary or "").strip()
+    has_sec = bool(secondary)
+
+    # Fit main title (and secondary) to width.
+    main_font, main_lines, main_lh = _fit(title, int(W * 0.86), int(H * 0.40), 118)
+    sec_font = sec_lines = None
+    sec_h = 0
+    if has_sec:
+        sec_text = _bracket_jp(secondary)
+        sec_size = max(34, int(main_font.size * 0.58))
+        sec_font, sec_lines, sec_lh = _fit(sec_text, int(W * 0.86), int(H * 0.22), sec_size)
+        sec_h = int(sec_lh * 1.14 * len(sec_lines)) + 8
+
+    pill_font = _font(38, "Instrumental")
+    pill_h = _measure("Instrumental", pill_font)[1] + 30
+    main_h = int(main_lh * 1.14 * len(main_lines))
+    stack_h = main_h + sec_h + 28 + pill_h
+    top = int(H * 0.50 - stack_h / 2)
+
+    y = _draw_center_block(canvas, main_lines, main_font, main_lh, top)
+    if has_sec:
+        y = _draw_center_block(canvas, sec_lines, sec_font, sec_lh, y + 8,
+                               fill=(244, 244, 246, 255))
+    _pill(canvas, "Instrumental", pill_font, y + 22, pill_rgb)
     canvas.convert("RGB").save(out)
     return out
 
 
-def make_album(artist: str, title: str, cover: Path | None, bg_color, out: Path) -> Path:
-    canvas = _cover_to_canvas(cover) if cover else \
-        Image.new("RGBA", (W, H), tuple(bg_color) + (255,))
-
-    # Top-left filled pill.
-    tag_font = _font(32, "instrumental")
-    _pill(canvas, "instrumental", tag_font, (44, 44), anchor="la",
-          pad=(18, 10), fill=(0, 0, 0, 150))
-
-    # Bottom-left stacked artist + title.
-    title_font, title_lines, line_h = _fit_title(title, int(W * 0.9), int(H * 0.4), 92)
-    block_h = int(line_h * 1.16 * len(title_lines))
-    base_y = H - 58 - block_h
-    if artist:
-        artist_font = _font(42, artist)
-        ah = _measure(artist, artist_font)[1]
-        _glow_text(canvas, (58, base_y - ah - 14), artist, artist_font,
-                   fill=(238, 238, 240, 255), anchor="la", radius=10)
-    _glow_block(canvas, title_lines, title_font, line_h, 58, base_y, align="left", radius=14)
-    canvas.convert("RGB").save(out)
-    return out
-
-
-def make_thumbnail(layout: str, meta: dict, work_dir: Path,
-                   cover: Path | None, bg_color, out: Path) -> Path:
+def make_thumbnail(meta: dict, work_dir: Path, bg_color, out: Path,
+                   yt_thumb: Path | None = None, secondary: str | None = None) -> Path:
     title = meta.get("title") or "Untitled"
-    artist = meta.get("artist") or ""
-    if layout == "album":
-        return make_album(artist, title, cover, bg_color, out)
-    yt = download_yt_thumb(meta.get("yt_thumbnail_url"), work_dir)
-    return make_cinematic(title, yt, bg_color, out)
+    if yt_thumb is None:
+        yt_thumb = download_yt_thumb(meta.get("yt_thumbnail_url"), work_dir)
+    sec = secondary if secondary is not None else meta.get("title_secondary")
+    return make_cinematic(title, sec, yt_thumb, bg_color, out)

@@ -57,8 +57,12 @@ def prepare(url: str, work_dir: Path, sep_model: str = config.DEFAULT_SEP_MODEL,
     log(f"  bg_color={art['bg_color']} cover="
         f"{'yes' if art['cover'] else 'fallback'}")
 
-    # Build all background variants + both thumbnail previews up front so the
-    # review screen can switch between them instantly (no re-render per click).
+    # Suggest a Japanese/native title for the thumbnail (iTunes), editable later.
+    meta["title_secondary"] = artwork.native_title(meta["artist"], meta["title"]) or ""
+    if meta["title_secondary"]:
+        log(f"  native title suggestion: {meta['title_secondary']}")
+
+    # Build all background variants up front so review can switch instantly.
     yt_thumb = thumbnail.download_yt_thumb(meta.get("yt_thumbnail_url"), work_dir)
     backgrounds = {"color": art["background"]}
     if art["cover"]:
@@ -68,14 +72,9 @@ def prepare(url: str, work_dir: Path, sep_model: str = config.DEFAULT_SEP_MODEL,
         backgrounds["thumbnail"] = artwork.make_image_background(
             yt_thumb, work_dir / "bg_thumbnail.png")
 
-    thumbs = {
-        "cinematic": thumbnail.make_cinematic(
-            meta["title"], yt_thumb, art["bg_color"], work_dir / "thumb_cinematic.png"),
-        "album": thumbnail.make_album(
-            meta["artist"], meta["title"], art["cover"], art["bg_color"],
-            work_dir / "thumb_album.png"),
-    }
-    log(f"  backgrounds: {sorted(backgrounds)} | thumbnails: cinematic+album")
+    thumbnail.make_cinematic(meta["title"], meta["title_secondary"], yt_thumb,
+                             art["bg_color"], work_dir / "thumb_cinematic.png")
+    log(f"  backgrounds: {sorted(backgrounds)} | thumbnail: cinematic")
     progress(1.0)
 
     return {
@@ -91,15 +90,15 @@ def prepare(url: str, work_dir: Path, sep_model: str = config.DEFAULT_SEP_MODEL,
         "bg_color": art["bg_color"],
         "background": art["background"],
         "backgrounds": backgrounds,
-        "thumbnails": thumbs,
         "yt_thumb": yt_thumb,
     }
 
 
 def finalize(ctx: dict, work_dir: Path, out_dir: Path, *,
              lrc: str | None, offset_ms: int = 0,
-             layout: str = "cinematic", vocal_mode: str = "instrumental",
+             vocal_mode: str = "instrumental",
              bg_mode: str = config.DEFAULT_BG_MODE,
+             title_secondary: str | None = None,
              log: Log = _noop, stage: Stage = _noop, progress: Progress = _noop) -> dict:
     """Render the video + thumbnail from the (possibly user-edited) review state."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -131,14 +130,12 @@ def finalize(ctx: dict, work_dir: Path, out_dir: Path, *,
                         progress_cb=lambda p: progress(0.35 + 0.50 * p))
     progress(0.85)
 
-    log(f"Generating thumbnail (layout={layout})…")
+    log("Generating cinematic thumbnail…")
     out_thumb = work_dir / "thumbnail.png"
-    pre = ctx.get("thumbnails", {}).get(layout)
-    if pre and Path(pre).exists():
-        shutil.copy2(pre, out_thumb)
-    else:
-        thumbnail.make_thumbnail(layout, ctx["meta"], work_dir,
-                                 ctx["cover"], ctx["bg_color"], out_thumb)
+    sec = title_secondary if title_secondary is not None \
+        else ctx["meta"].get("title_secondary")
+    thumbnail.make_thumbnail(ctx["meta"], work_dir, ctx["bg_color"], out_thumb,
+                             yt_thumb=ctx.get("yt_thumb"), secondary=sec)
     progress(0.95)
 
     outputs = _collect(out_dir, ctx["meta"], out_video, out_thumb, ctx["instrumental"])

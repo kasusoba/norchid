@@ -241,11 +241,12 @@ class JobManager:
             "thumbnail_url": f"{a}/thumb_cinematic.png",
             "instrumental_url": f"{a}/instrumental.wav",
             "vocal_url": f"{a}/vocals.wav" if ctx.get("vocal") else None,
+            "source_url": f"{a}/source.wav" if (config.WORKSPACE / job.id / "source.wav").exists() else None,
         }
 
     def asset_path(self, job: Job, name: str) -> Path | None:
         """Resolve a whitelisted preview asset within the job workspace."""
-        allowed = {"instrumental.wav", "vocals.wav", "background.png",
+        allowed = {"instrumental.wav", "vocals.wav", "source.wav", "background.png",
                    "bg_cover.png", "bg_thumbnail.png", "thumb_cinematic.png",
                    "cover.jpg", "yt_thumb.jpg"}
         safe = Path(name).name

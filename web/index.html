@@ -8,7 +8,7 @@
   <script defer src="/static/alpine.min.js"></script>
 </head>
 <body>
-<div class="wrap" :class="{ wide: screen === 'review' }" x-data="norchid()" x-init="init()" x-cloak>
+<div class="wrap" :class="{ wide: screen === 'review' }" x-data="norchid()" x-init="init()" @keydown.window="keyTap($event)" x-cloak>
 
   <header class="brand">
     <h1>norchid</h1>
@@ -131,6 +131,47 @@
         <textarea x-model="form.lrc" spellcheck="false" @input.debounce.250ms="onLrcChange()"
                   placeholder="[00:12.34] first line&#10;[00:15.00] second line"></textarea>
         <div class="hint">Lines are <code>[mm:ss.xx] text</code>. Edits update the preview live.</div>
+
+        <div class="flex-between" style="margin-top:10px">
+          <button class="btn ghost" @click="tapOpen ? closeTap() : openTap()"
+                  x-text="tapOpen ? 'Close tap-sync' : '🎤 Make timing (tap-sync)'"></button>
+          <button class="btn ghost" @click="publishLrc()" :disabled="publishing || !/\[\d/.test(form.lrc||'')"
+                  x-text="publishing ? 'Publishing…' : '↑ Publish to LRCLIB'"></button>
+        </div>
+        <div class="hint" x-show="publishMsg" x-text="publishMsg"></div>
+
+        <div x-show="tapOpen" class="tap-editor">
+          <div class="hint" style="margin-top:0">Paste the words (one line each), play the song, and tap
+            <b>Space</b> (or the button) right as each line starts.</div>
+          <div class="spacer"></div>
+          <textarea x-model="tapText" @input="onTapTextChange()" spellcheck="false" style="min-height:110px"
+                    placeholder="first line&#10;second line&#10;…"></textarea>
+          <div class="transport">
+            <button class="btn play" @click="tapTogglePlay()" x-text="tapPlaying ? '⏸' : '▶'"></button>
+            <input type="range" min="0" :max="tapDur || 1" step="0.05" :value="tapTime" @input="tapSeek($event.target.value)" />
+            <span class="time" x-text="fmtT(tapTime) + ' / ' + fmtT(tapDur)"></span>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button class="btn green" style="flex:2" @click="tap()" :disabled="tapIdx>=tapLines.length">
+              TAP <span x-text="`${Math.min(tapIdx+1,tapLines.length)}/${tapLines.length}`"></span>
+            </button>
+            <button class="btn ghost" @click="tapUndo()" :disabled="!tapIdx">Undo</button>
+            <button class="btn ghost" @click="tapRestart()">Restart</button>
+          </div>
+          <div class="tap-lines">
+            <template x-for="(l,i) in tapLines" :key="i">
+              <div class="tap-line" :class="i===tapIdx ? 'cur' : (l.t!=null ? 'done' : '')">
+                <span class="tap-stamp" x-text="l.t!=null ? fmtLrc(l.t) : '—'"></span>
+                <span x-text="l.text"></span>
+              </div>
+            </template>
+          </div>
+          <div class="spacer"></div>
+          <button class="btn green block" @click="tapApply()" :disabled="!tapLines.some(l=>l.t!=null)">Apply timing → LRC</button>
+          <audio x-ref="tapAudio" :src="review.source_url || review.instrumental_url" preload="none"
+                 @loadedmetadata="tapAudioReady()" @timeupdate="tapTime = $refs.tapAudio.currentTime"
+                 @play="tapPlaying=true" @pause="tapPlaying=false"></audio>
+        </div>
 
         <div class="spacer"></div>
         <label>Romanization (optional) — shown smaller under each line</label>
@@ -300,6 +341,10 @@ function norchid() {
     _dirty: false,
     _scrubbing: false,
     uploading: false,
+    // tap-sync editor
+    tapOpen: false, tapText: '', tapLines: [], tapIdx: 0, tapPlaying: false,
+    tapTime: 0, tapDur: 0,
+    publishing: false, publishMsg: '',
 
     get screen() {
       if (!this.jobId) return 'input';
@@ -615,6 +660,59 @@ function norchid() {
       } catch (e) {}
     },
 
+    // ---------- tap-sync timing editor ----------
+    fmtLrc(t) {
+      t = Math.max(0, t); const m = Math.floor(t/60), s = (t%60);
+      return `${String(m).padStart(2,'0')}:${s.toFixed(2).padStart(5,'0')}`;
+    },
+    openTap() {
+      this.tapOpen = true;
+      if (!this.tapText.trim()) {
+        // seed from current LRC (strip timestamps) so you can re-time existing lines
+        this.tapText = (this.form.lrc || '').split('\n')
+          .map(l => l.replace(/\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]/g, '').trim())
+          .filter(Boolean).join('\n');
+      }
+      this.buildTapLines();
+    },
+    closeTap() { this.tapOpen = false; const a = this.$refs.tapAudio; if (a) a.pause(); },
+    buildTapLines() {
+      this.tapLines = this.tapText.split('\n').map(s => s.trim()).filter(Boolean).map(text => ({ text, t: null }));
+      this.tapIdx = 0;
+    },
+    onTapTextChange() { this.buildTapLines(); },
+    tapAudioReady() { const a = this.$refs.tapAudio; this.tapDur = (a && a.duration) || this.pvDuration || 0; },
+    tapTogglePlay() { const a = this.$refs.tapAudio; if (!a) return; a.paused ? a.play() : a.pause(); },
+    tapSeek(v) { const a = this.$refs.tapAudio; if (a) { a.currentTime = +v; this.tapTime = +v; } },
+    tap() {
+      const a = this.$refs.tapAudio; if (!a || this.tapIdx >= this.tapLines.length) return;
+      this.tapLines[this.tapIdx].t = a.currentTime; this.tapIdx++;
+    },
+    tapUndo() { if (this.tapIdx > 0) { this.tapIdx--; this.tapLines[this.tapIdx].t = null; } },
+    tapRestart() { this.tapLines.forEach(l => l.t = null); this.tapIdx = 0; const a = this.$refs.tapAudio; if (a) a.currentTime = 0; },
+    tapApply() {
+      const lrc = this.tapLines.filter(l => l.t != null).map(l => `[${this.fmtLrc(l.t)}] ${l.text}`).join('\n');
+      if (!lrc) return;
+      this.form.lrc = lrc; this.onLrcChange();
+      this.closeTap();
+    },
+    keyTap(e) {
+      if (!this.tapOpen || e.code !== 'Space') return;
+      const el = document.activeElement, tag = el && el.tagName;
+      if (tag === 'TEXTAREA' || tag === 'INPUT') return;
+      e.preventDefault(); this.tap();
+    },
+    async publishLrc() {
+      if (!/\[\d/.test(this.form.lrc || '')) return;
+      if (!confirm('Upload these synced lyrics to LRCLIB? They become public.')) return;
+      this.publishing = true; this.publishMsg = '';
+      try {
+        await this.saveDraft();
+        const r = await (await fetch(`/api/jobs/${this.jobId}/publish`, { method: 'POST' })).json();
+        this.publishMsg = r.message || (r.ok ? 'published' : 'failed');
+      } catch (e) { this.publishMsg = 'error'; }
+      this.publishing = false;
+    },
     async uploadCover(e) {
       const f = e.target.files && e.target.files[0];
       if (!f) return;

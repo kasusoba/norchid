@@ -171,6 +171,12 @@ input[type=range]:focus { outline: none; }
 .err { color: var(--danger); background: #2a1414; border: 1px solid #4a2020; padding: 12px; border-radius: 9px; }
 .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
 .linklike { color: var(--accent); cursor: pointer; text-decoration: underline; }
+.tap-editor { margin-top: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); }
+.tap-lines { max-height: 240px; overflow: auto; margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+.tap-line { display: flex; gap: 10px; padding: 5px 8px; border-radius: 6px; font-size: 13px; color: var(--muted); }
+.tap-line.cur { background: rgba(108,140,255,.18); color: var(--text); }
+.tap-line.done { color: var(--text); }
+.tap-stamp { font: 12px ui-monospace, monospace; color: var(--accent); min-width: 66px; }
 .del-btn { flex: none; width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); cursor: pointer; font-size: 12px; line-height: 1; }
 .del-btn:hover { border-color: var(--danger); color: var(--danger); }
 .spacer { height: 14px; }

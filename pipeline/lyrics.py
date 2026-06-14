@@ -77,6 +77,40 @@ def best_lrc(candidates: list[dict]) -> str | None:
     return None
 
 
+def _solve_pow(prefix: str, target_hex: str, max_iters: int = 80_000_000) -> str | None:
+    """Find a nonce so SHA256(prefix+nonce) <= target (LRCLIB proof-of-work)."""
+    import hashlib
+    target = bytes.fromhex(target_hex)
+    for nonce in range(max_iters):
+        if hashlib.sha256(f"{prefix}{nonce}".encode()).digest() <= target:
+            return str(nonce)
+    return None
+
+
+def publish(track: str, artist: str, album: str, duration: int,
+            plain: str, synced: str) -> tuple[bool, str]:
+    """Publish a synced LRC to LRCLIB (solves their PoW challenge first)."""
+    try:
+        with _client() as c:
+            ch = c.post(f"{API}/request-challenge")
+            if ch.status_code != 200:
+                return False, f"challenge failed ({ch.status_code})"
+            d = ch.json()
+            nonce = _solve_pow(d["prefix"], d["target"])
+            if nonce is None:
+                return False, "could not solve the proof-of-work"
+            r = c.post(f"{API}/publish",
+                       headers={"X-Publish-Token": f"{d['prefix']}:{nonce}"},
+                       json={"trackName": track, "artistName": artist,
+                             "albumName": album or track, "duration": duration,
+                             "plainLyrics": plain, "syncedLyrics": synced})
+        if r.status_code in (200, 201):
+            return True, "Published to LRCLIB — thanks for contributing!"
+        return False, f"LRCLIB rejected it ({r.status_code}): {r.text[:160]}"
+    except httpx.HTTPError as e:
+        return False, f"network error: {e}"
+
+
 def candidate_summary(c: dict) -> dict:
     """Compact form for the review UI (no full lyric blobs in the list)."""
     return {

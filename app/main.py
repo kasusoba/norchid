@@ -208,6 +208,23 @@ async def upload_cover(jid: str, file: UploadFile = File(...)):
     return {"ok": True}
 
 
+@app.post("/api/jobs/{jid}/publish")
+def publish_lrc(jid: str):
+    """Publish the current synced lyrics to LRCLIB (user-initiated give-back)."""
+    job = manager.get(jid)
+    if not job or not job.ctx:
+        raise HTTPException(404, "job not ready")
+    if not job.lrc or "[" not in job.lrc:
+        raise HTTPException(400, "no synced lyrics to publish")
+    from pipeline import ass_render, lyrics
+    plain = "\n".join(l.text for l in ass_render.parse_lrc(job.lrc) if not l.instrumental)
+    ok, msg = lyrics.publish(
+        job.meta.get("title", ""), job.meta.get("artist", ""),
+        job.meta.get("album", ""), int(round(job.ctx.get("duration", 0))),
+        plain, job.lrc)
+    return {"ok": ok, "message": msg}
+
+
 @app.get("/api/jobs/{jid}/asset/{name}")
 def get_asset(jid: str, name: str):
     """Serve a whitelisted preview asset (audio/background/thumbnail) from the

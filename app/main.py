@@ -47,6 +47,7 @@ class ReviewSubmit(BaseModel):
     title_size: int = config.THUMB_TITLE_SIZE
     pill_size: int = config.THUMB_PILL_SIZE
     thumb_bg: str = "youtube"
+    pill_gap: int = config.THUMB_PILL_GAP
     bg_color: list | None = None
     pill_color: list | None = None
     lyric_size: int = 0
@@ -143,6 +144,7 @@ def submit_review(jid: str, body: ReviewSubmit):
                           vocal_mode=body.vocal_mode, bg_mode=body.bg_mode,
                           title_secondary=body.title_secondary, title_main=body.title_main, title_size=body.title_size,
                           pill_size=body.pill_size, thumb_bg=body.thumb_bg,
+                          pill_gap=body.pill_gap,
                           bg_color=body.bg_color, pill_color=body.pill_color,
                           lyric_size=body.lyric_size)
     return {"ok": True, "job_id": job.id}
@@ -160,7 +162,7 @@ def save_draft(jid: str, body: ReviewSubmit):
     manager.save_draft(job, lrc=body.lrc, romaji=body.romaji, offset_ms=body.offset_ms,
                        vocal_mode=body.vocal_mode, bg_mode=body.bg_mode,
                        title_secondary=body.title_secondary, title_main=body.title_main, title_size=body.title_size,
-                       pill_size=body.pill_size, thumb_bg=body.thumb_bg,
+                       pill_size=body.pill_size, thumb_bg=body.thumb_bg, pill_gap=body.pill_gap,
                        bg_color=body.bg_color, pill_color=body.pill_color,
                        lyric_size=body.lyric_size)
     return {"ok": True}
@@ -182,6 +184,7 @@ def thumbnail_preview(jid: str, body: dict):
                                  title_size=int((body or {}).get("title_size") or config.THUMB_TITLE_SIZE),
                                  pill_size=int((body or {}).get("pill_size") or config.THUMB_PILL_SIZE),
                                  bg_source=(body or {}).get("thumb_bg", "youtube"),
+                                 pill_gap=int((body or {}).get("pill_gap") or config.THUMB_PILL_GAP),
                                  pill_color=(body or {}).get("pill_color"))
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, f"thumbnail render failed: {e}")

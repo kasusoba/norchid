@@ -103,7 +103,7 @@ def finalize(ctx: dict, work_dir: Path, out_dir: Path, *,
              title_secondary: str | None = None, title_main: str | None = None,
              title_size: int = config.THUMB_TITLE_SIZE,
              pill_size: int = config.THUMB_PILL_SIZE, thumb_bg: str = "youtube",
-             bg_color=None, pill_color=None,
+             pill_gap: int = config.THUMB_PILL_GAP, bg_color=None, pill_color=None,
              lyric_size: int | None = None,
              log: Log = _noop, stage: Stage = _noop, progress: Progress = _noop) -> dict:
     """Render the video + thumbnail from the (possibly user-edited) review state."""
@@ -148,7 +148,8 @@ def finalize(ctx: dict, work_dir: Path, out_dir: Path, *,
     thumbnail.make_thumbnail(ctx["meta"], work_dir, ctx["bg_color"], out_thumb,
                              yt_thumb=ctx.get("yt_thumb"), secondary=sec, title_main=title_main,
                              title_size=title_size, cover=ctx.get("cover"),
-                             bg_source=thumb_bg, pill_size=pill_size, pill_color=pill_color)
+                             bg_source=thumb_bg, pill_size=pill_size, pill_color=pill_color,
+                             pill_gap=pill_gap)
     progress(0.95)
 
     outputs = _collect(out_dir, ctx["meta"], out_video, out_thumb, ctx["instrumental"])

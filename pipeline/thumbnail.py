@@ -183,7 +183,8 @@ def _bracket_jp(text: str) -> str:
 def make_cinematic(title: str, secondary: str | None, yt_thumb: Path | None,
                    bg_color, out: Path, title_size: int = config.THUMB_TITLE_SIZE,
                    cover: Path | None = None, bg_source: str = "youtube",
-                   pill_size: int = config.THUMB_PILL_SIZE, pill_color=None) -> Path:
+                   pill_size: int = config.THUMB_PILL_SIZE, pill_color=None,
+                   pill_gap: int = config.THUMB_PILL_GAP) -> Path:
     # Background: YouTube thumbnail (default), cover blurred-fill, or cover boxed.
     have_cover = cover and Path(cover).exists()
     if bg_source == "cover_boxed" and have_cover:
@@ -212,17 +213,18 @@ def make_cinematic(title: str, secondary: str | None, yt_thumb: Path | None,
         sec_h = int(sec_lh * 1.14 * len(sec_lines)) + 8
 
     pill_size = max(20, min(80, int(pill_size or config.THUMB_PILL_SIZE)))
+    pill_gap = max(0, min(160, int(pill_gap if pill_gap is not None else config.THUMB_PILL_GAP)))
     pill_font = _font(pill_size, "Instrumental")
     pill_h = _measure("Instrumental", pill_font)[1] + 30
     main_h = int(main_lh * 1.14 * len(main_lines))
-    stack_h = main_h + sec_h + 28 + pill_h
+    stack_h = main_h + sec_h + pill_gap + pill_h
     top = int(H * 0.50 - stack_h / 2)
 
     y = _draw_center_block(canvas, main_lines, main_font, main_lh, top)
     if has_sec:
         y = _draw_center_block(canvas, sec_lines, sec_font, sec_lh, y + 8,
                                fill=(244, 244, 246, 255))
-    _pill(canvas, "Instrumental", pill_font, y + 22, pill_rgb,
+    _pill(canvas, "Instrumental", pill_font, y + pill_gap, pill_rgb,
           pad=(round(pill_size * 0.9), round(pill_size * 0.4)))
     canvas.convert("RGB").save(out)
     return out
@@ -233,11 +235,12 @@ def make_thumbnail(meta: dict, work_dir: Path, bg_color, out: Path,
                    title_size: int = config.THUMB_TITLE_SIZE,
                    cover: Path | None = None, bg_source: str = "youtube",
                    pill_size: int = config.THUMB_PILL_SIZE, pill_color=None,
-                   title_main: str | None = None) -> Path:
+                   title_main: str | None = None,
+                   pill_gap: int = config.THUMB_PILL_GAP) -> Path:
     title = (title_main or "").strip() or meta.get("title") or "Untitled"
     if yt_thumb is None:
         yt_thumb = download_yt_thumb(meta.get("yt_thumbnail_url"), work_dir)
     sec = secondary if secondary is not None else meta.get("title_secondary")
     return make_cinematic(title, sec, yt_thumb, bg_color, out, title_size=title_size,
                           cover=cover, bg_source=bg_source, pill_size=pill_size,
-                          pill_color=pill_color)
+                          pill_color=pill_color, pill_gap=pill_gap)

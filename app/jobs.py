@@ -22,7 +22,7 @@ from pipeline import artwork, lyrics, runner
 # workspace/<id>/; we only need the metadata to rehydrate a job after a restart).
 _PERSIST_FIELDS = ("url", "sep_model", "status", "stage", "meta", "offset_ms",
                    "vocal_mode", "bg_mode", "title_secondary", "title_size",
-                   "pill_size", "thumb_bg", "pill_color", "title_main", "lyric_size",
+                   "pill_size", "thumb_bg", "pill_gap", "pill_color", "title_main", "lyric_size",
                    "lrc", "romaji", "lrc_candidates", "outputs", "error")
 _BG_FILES = {"color": "background.png", "cover": "bg_cover.png",
              "thumbnail": "bg_thumbnail.png"}
@@ -97,6 +97,7 @@ class Job:
     title_size: int = config.THUMB_TITLE_SIZE
     pill_size: int = config.THUMB_PILL_SIZE
     thumb_bg: str = "youtube"
+    pill_gap: int = config.THUMB_PILL_GAP
     pill_color: tuple | None = None   # None = auto (sampled from background)
     lyric_size: int = 0   # 0 = default scroll font size
     outputs: dict = field(default_factory=dict)
@@ -231,6 +232,7 @@ class JobManager:
             "title_main": job.title_main or job.meta.get("title", ""),
             "title_size": job.title_size,
             "pill_size": job.pill_size,
+            "pill_gap": job.pill_gap,
             "thumb_bg": job.thumb_bg,
             "pill_color": list(job.pill_color) if job.pill_color else None,
             "bg_swatches": [list(artwork.clamp_color(c)) for c in ctx.get("palette", [])],
@@ -280,7 +282,7 @@ class JobManager:
 
     def _apply_review(self, job: Job, *, lrc, romaji, offset_ms, vocal_mode, bg_mode,
                       title_secondary, title_size, pill_size, thumb_bg, lyric_size,
-                      bg_color=None, pill_color=None, title_main="") -> None:
+                      pill_gap=config.THUMB_PILL_GAP, bg_color=None, pill_color=None, title_main="") -> None:
         job.title_main = (title_main or "").strip()
         job.lrc = lrc
         job.romaji = romaji
@@ -291,6 +293,7 @@ class JobManager:
         job.meta["title_secondary"] = job.title_secondary
         job.title_size = int(title_size or config.THUMB_TITLE_SIZE)
         job.pill_size = int(pill_size or config.THUMB_PILL_SIZE)
+        job.pill_gap = int(pill_gap if pill_gap is not None else config.THUMB_PILL_GAP)
         job.thumb_bg = thumb_bg if thumb_bg in config.THUMB_BG_SOURCES else "youtube"
         if bg_color:
             job.bg_color = tuple(bg_color)
@@ -353,6 +356,7 @@ class JobManager:
                         vocal_mode=job.vocal_mode, bg_mode=job.bg_mode,
                         title_secondary=job.title_secondary, title_main=job.title_main, title_size=job.title_size,
                         pill_size=job.pill_size, thumb_bg=job.thumb_bg,
+                        pill_gap=job.pill_gap,
                         bg_color=job.bg_color, pill_color=job.pill_color,
                         lyric_size=job.lyric_size,
                         log=log, stage=stage, progress=progress)

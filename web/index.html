@@ -221,6 +221,9 @@
           </div>
         </div>
         <div class="spacer"></div>
+        <div class="ctl-label"><label style="margin:0">Title ↔ pill gap</label><b x-text="form.pill_gap + ' px'"></b></div>
+        <input type="range" min="0" max="140" step="2" x-model.number="form.pill_gap" @input.debounce.250ms="refreshThumb()" />
+        <div class="spacer"></div>
         <label>Pill color</label>
         <div class="swatches">
           <button class="swatch-btn" :class="!form.pill_color && 'on'" @click="pickPillColor(null)" title="auto"
@@ -278,7 +281,7 @@ function norchid() {
   return {
     cfg: { models: [], default: 'roformer', thumb_bg_sources: [] },
     rcfg: { width: 1920, height: 1080, scroll: { font_size: 60, line_gap_ratio: 1.733, line_gap_ratio_romaji: 2.55, romaji_size_ratio: 0.52, romaji_offset_ratio: 0.92, visible_radius: 6, transition_ms: 240, alpha_active: 0, alpha_passed: 0.66, alpha_upcoming: 0.42 } },
-    form: { url: '', sep_model: 'roformer', lrc: '', romaji: '', offset_ms: 0, vocal_mode: 'instrumental', bg_mode: 'color', bg_color: null, title_main: '', title_secondary: '', title_size: 84, pill_size: 34, thumb_bg: 'youtube', pill_color: null, lyric_size: 60 },
+    form: { url: '', sep_model: 'roformer', lrc: '', romaji: '', offset_ms: 0, vocal_mode: 'instrumental', bg_mode: 'color', bg_color: null, title_main: '', title_secondary: '', title_size: 84, pill_size: 34, pill_gap: 22, thumb_bg: 'youtube', pill_color: null, lyric_size: 60 },
     romajiLines: [],
     jobId: null,
     jobList: [],
@@ -341,7 +344,7 @@ function norchid() {
           body: JSON.stringify({ lrc: this.form.lrc, romaji: this.form.romaji, offset_ms: this.form.offset_ms,
             vocal_mode: this.form.vocal_mode, bg_mode: this.form.bg_mode, bg_color: this.form.bg_color,
             pill_color: this.form.pill_color, title_main: this.form.title_main, title_secondary: this.form.title_secondary,
-            title_size: this.form.title_size, pill_size: this.form.pill_size, thumb_bg: this.form.thumb_bg,
+            title_size: this.form.title_size, pill_size: this.form.pill_size, pill_gap: this.form.pill_gap, thumb_bg: this.form.thumb_bg,
             lyric_size: this.form.lyric_size }) });
       } catch (e) {}
     },
@@ -394,6 +397,7 @@ function norchid() {
       this.form.title_secondary = this.review.title_secondary || '';
       this.form.title_size = this.review.title_size || 84;
       this.form.pill_size = this.review.pill_size || 34;
+      this.form.pill_gap = this.review.pill_gap != null ? this.review.pill_gap : 22;
       this.form.thumb_bg = this.review.thumb_bg || 'youtube';
       this.thumbSrc = this.review.thumbnail_url + '?_=' + Date.now();
       this.reviewLoaded = true;
@@ -603,7 +607,7 @@ function norchid() {
     async refreshThumb() {
       try {
         const r = await fetch(`/api/jobs/${this.jobId}/thumbnail-preview`, { method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ title_main: this.form.title_main, title_secondary: this.form.title_secondary, title_size: this.form.title_size, pill_size: this.form.pill_size, thumb_bg: this.form.thumb_bg, pill_color: this.form.pill_color }) });
+          body: JSON.stringify({ title_main: this.form.title_main, title_secondary: this.form.title_secondary, title_size: this.form.title_size, pill_size: this.form.pill_size, pill_gap: this.form.pill_gap, thumb_bg: this.form.thumb_bg, pill_color: this.form.pill_color }) });
         if (!r.ok) return;
         if (this._thumbBlob) URL.revokeObjectURL(this._thumbBlob);
         this._thumbBlob = URL.createObjectURL(await r.blob());
@@ -637,7 +641,7 @@ function norchid() {
           vocal_mode: this.form.vocal_mode, bg_mode: this.form.bg_mode,
           bg_color: this.form.bg_color, pill_color: this.form.pill_color,
           title_main: this.form.title_main, title_secondary: this.form.title_secondary, title_size: this.form.title_size,
-          pill_size: this.form.pill_size, thumb_bg: this.form.thumb_bg,
+          pill_size: this.form.pill_size, pill_gap: this.form.pill_gap, thumb_bg: this.form.thumb_bg,
           lyric_size: this.form.lyric_size }) });
       this.forceReview = false;
       this.job.status = 'running'; this.job.stage = 'rendering';

@@ -108,7 +108,7 @@ video { width: 100%; border-radius: 10px; border: 1px solid var(--line); backgro
   transform-origin: top left;
 }
 .preview .line {
-  position: absolute; white-space: nowrap;
+  position: absolute; white-space: nowrap; line-height: 1;
   transform: translate(-50%, -50%);
   font-family: "Noto Sans CJK JP Black", system-ui, sans-serif; font-weight: 900;
   color: #fff; text-shadow: 2px 2px 4px rgba(0,0,0,.5); pointer-events: none;

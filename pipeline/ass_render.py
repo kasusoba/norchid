@@ -118,6 +118,20 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     n = len(lines)
     events: list[str] = []
+
+    # Intro: before the first lyric, hold the opening window centered (Spotify
+    # shows upcoming lines waiting). This matches the browser preview, which
+    # shows the opening lines from t=0.
+    if lines and lines[0].t > 0.05:
+        for j in range(0, vr + 1):
+            if j >= n:
+                break
+            y = mid + j * L
+            alpha = a_active if j == 0 else a_inact
+            events.append(
+                f"Dialogue: 0,{_ass_time(0)},{_ass_time(lines[0].t)},Lyric,,0,0,0,,"
+                f"{{\\an5\\pos({cx},{y:.0f})\\alpha{alpha}}}{_escape(lines[j].text)}")
+
     for i in range(n):
         t0 = lines[i].t
         last = (i + 1 >= n)

@@ -370,6 +370,11 @@ function norchid() {
           const a = this.$refs.inst;
           if (a && a.duration && isFinite(a.duration)) this.pvDuration = a.duration;
           const t = a ? (a.currentTime || 0) : 0;
+          // Keep the guide-vocal stem locked to the instrumental (two <audio>
+          // elements drift; resync when they slip more than ~120ms).
+          const v = this.$refs.voc;
+          if (this.form.vocal_mode === 'guide' && v && a && !a.paused && !v.paused
+              && Math.abs(v.currentTime - t) > 0.12) v.currentTime = t;
           const scrub = this.$refs.scrub, lbl = this.$refs.timeLabel;
           if (scrub && document.activeElement !== scrub) { scrub.max = this.pvDuration || 1; scrub.value = t; }
           if (lbl) lbl.textContent = this.fmtT(t) + ' / ' + this.fmtT(this.pvDuration);

@@ -35,7 +35,7 @@ SCROLL = {
     "font_size": 60,        # px (PlayResY space)
     "line_spacing": 104,    # px between line centers
     "visible_radius": 6,    # lines emitted above/below active (covers 1080 + off-screen)
-    "transition_ms": 450,   # scroll/handoff duration at each line change
+    "transition_ms": 240,   # scroll/handoff duration at each line change (snappy)
     "alpha_active": 0.0,    # 0 = opaque
     "alpha_inactive": 0.55, # 0.55 transparent == 45% opacity (D10)
 }

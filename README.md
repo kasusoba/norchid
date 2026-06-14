@@ -23,18 +23,30 @@ YouTube URL
   → out: video.mp4 + thumbnail.png + instrumental.wav
 ```
 
-## Quick start (target)
+## Quick start
+
+System deps: **ffmpeg** (built with libass) and a CUDA GPU (optional — CPU works,
+slower). Fonts are vendored in `assets/fonts/` (Noto Sans CJK + Montserrat ExtraBold).
 
 ```bash
-# system deps: ffmpeg, a CJK font (Noto Sans CJK)
-uv sync                 # or: pip install -e .
-uvicorn app.main:app --reload
-# open http://localhost:8000, paste a YouTube URL
+python -m venv .venv && source .venv/bin/activate
+pip install -e .                      # for GPU separation also: pip install "audio-separator[gpu]"
+
+# Web UI (paste URL → review lyrics/offset/layout → render):
+uvicorn app.main:app --reload         # open http://localhost:8000
+
+# Or headless CLI (auto-picks best LRC; outputs to ./outputs/):
+python -m app.cli "https://www.youtube.com/watch?v=…" \
+    --layout album --vocal-mode instrumental --offset 0
 ```
+
+Outputs: `video.mp4` (1080p60), `thumbnail.png` (1280×720), `instrumental.wav`.
 
 ## Status
 
-Planning complete. See `docs/`:
+**Built through Phase 3** (renderer spike → CLI pipeline → web UI + review → polish).
+Verified end-to-end on Japanese material (CJK + Hangul lyrics render with no tofu;
+BS-Roformer separation on GPU ~40s/song). See `docs/`:
 - [`PRD.md`](docs/PRD.md) — what we're building and why
 - [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system design, pipeline, API, rendering technique
 - [`BRANDING.md`](docs/BRANDING.md) — visual spec (colors, fonts, thumbnail layouts)

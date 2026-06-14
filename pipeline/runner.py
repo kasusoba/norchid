@@ -1,0 +1,137 @@
+"""End-to-end pipeline, split into the two halves the review step sits between.
+
+`prepare`  : download -> separate -> lyrics -> cover/bg  (up to awaiting_review)
+`finalize` : render ASS -> compose video -> thumbnail -> collect outputs
+
+Both halves take small callbacks (log / stage / progress) so the CLI and the
+FastAPI worker can drive the same code. See docs/ARCHITECTURE.md §2.
+"""
+
+from __future__ import annotations
+
+import shutil
+from pathlib import Path
+from typing import Callable
+
+from app import config
+from pipeline import ass_render, artwork, download, lyrics, separate, thumbnail, video
+
+Log = Callable[[str], None]
+Stage = Callable[[str], None]
+Progress = Callable[[float], None]
+
+
+def _noop(*_a, **_k):
+    pass
+
+
+def prepare(url: str, work_dir: Path, sep_model: str = config.DEFAULT_SEP_MODEL,
+            log: Log = _noop, stage: Stage = _noop, progress: Progress = _noop) -> dict:
+    """Run everything up to (and excluding) the render. Returns review context."""
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    stage("downloading"); progress(0.0)
+    log(f"Downloading audio: {url}")
+    meta = download.download(url, work_dir, progress_cb=progress)
+    log(f"  title='{meta['title']}' artist='{meta['artist']}'")
+    source = Path(meta["source_path"])
+
+    stage("separating"); progress(0.0)
+    if not config.use_gpu():
+        log("⚠ No CUDA GPU detected — separation will run on CPU (much slower).")
+    log(f"Separating stems (model={sep_model}) — this is the slow step…")
+    sep = separate.separate(source, work_dir, sep_model, progress_cb=progress)
+    log(f"  instrumental={sep['instrumental'].name} vocal="
+        f"{sep['vocal'].name if sep['vocal'] else 'none'}")
+
+    duration = video.probe_duration(sep["instrumental"]) or meta["duration"]
+
+    stage("fetching_lyrics"); progress(0.0)
+    log("Fetching synced lyrics (LRCLIB) + cover art…")
+    candidates = lyrics.search(meta["artist"], meta["title"], duration)
+    lrc = lyrics.best_lrc(candidates)
+    log(f"  {len(candidates)} lyric candidate(s); synced match="
+        f"{'yes' if lrc else 'no'}")
+
+    art = artwork.background_for(meta["artist"], meta["title"], work_dir)
+    log(f"  bg_color={art['bg_color']} cover="
+        f"{'yes' if art['cover'] else 'fallback'}")
+    progress(1.0)
+
+    return {
+        "meta": meta,
+        "duration": duration,
+        "instrumental": sep["instrumental"],
+        "vocal": sep["vocal"],
+        "sep_model_file": sep["model"],
+        "lrc": lrc,
+        "lrc_candidates": candidates,
+        "cover": art["cover"],
+        "cover_url": art["cover_url"],
+        "bg_color": art["bg_color"],
+        "background": art["background"],
+    }
+
+
+def finalize(ctx: dict, work_dir: Path, out_dir: Path, *,
+             lrc: str | None, offset_ms: int = 0,
+             layout: str = "cinematic", vocal_mode: str = "instrumental",
+             log: Log = _noop, stage: Stage = _noop, progress: Progress = _noop) -> dict:
+    """Render the video + thumbnail from the (possibly user-edited) review state."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stage("rendering"); progress(0.0)
+
+    duration = ctx["duration"]
+    ass_path = None
+    if lrc and lrc.strip():
+        ass_path = work_dir / "lyrics.ass"
+        n = ass_render.write_ass(lrc, str(ass_path), duration=duration, offset_ms=offset_ms)
+        log(f"  wrote ASS with {len(n)} lines (offset={offset_ms}ms)")
+    else:
+        log("  no lyrics — rendering background + audio only")
+    progress(0.2)
+
+    log(f"Building audio track (mode={vocal_mode})…")
+    render_audio = video.build_audio_track(
+        ctx["instrumental"], ctx["vocal"], vocal_mode, work_dir / "render_audio.wav")
+    progress(0.35)
+
+    log("Composing 1080p60 video (ffmpeg + libass)…")
+    out_video = work_dir / "output.mp4"
+    video.compose_video(ctx["background"], render_audio, ass_path, out_video,
+                        duration=duration,
+                        progress_cb=lambda p: progress(0.35 + 0.50 * p))
+    progress(0.85)
+
+    log(f"Generating thumbnail (layout={layout})…")
+    out_thumb = work_dir / "thumbnail.png"
+    thumbnail.make_thumbnail(layout, ctx["meta"], work_dir,
+                             ctx["cover"], ctx["bg_color"], out_thumb)
+    progress(0.95)
+
+    outputs = _collect(out_dir, ctx["meta"], out_video, out_thumb, ctx["instrumental"])
+    progress(1.0)
+    stage("done")
+    log(f"Done -> {outputs}")
+    return outputs
+
+
+def _safe(name: str) -> str:
+    keep = "-_.() "
+    s = "".join(c if c.isalnum() or c in keep else "_" for c in name).strip()
+    return s or "norchid"
+
+
+def _collect(out_dir: Path, meta: dict, video_p: Path, thumb_p: Path,
+             instrumental: Path) -> dict:
+    base = _safe(f"{meta.get('artist','')} - {meta.get('title','norchid')}".strip(" -"))
+    out = {}
+    for key, src, ext in (("video", video_p, "mp4"),
+                          ("thumbnail", thumb_p, "png"),
+                          ("instrumental", instrumental, "wav")):
+        if src and Path(src).exists():
+            dst = out_dir / f"{base}.{ext}" if key != "instrumental" \
+                else out_dir / f"{base} (instrumental).wav"
+            shutil.copy2(src, dst)
+            out[key] = str(dst)
+    return out

@@ -50,20 +50,37 @@ def build_audio_track(
     return instrumental
 
 
+def probe_duration(path: Path) -> float:
+    """Duration in seconds via ffprobe (authoritative vs. yt-dlp metadata)."""
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=nw=1:nk=1", str(path)],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    return float(out) if out else 0.0
+
+
 def compose_video(
     background: Path,
     audio: Path,
-    ass_path: Path,
+    ass_path: Path | None,
     out_path: Path,
     fps: int = config.FPS,
     fonts_dir: Path = config.FONTS_DIR,
+    duration: float = 0.0,
     progress_cb=None,
 ) -> Path:
-    """Burn the ASS subtitle over the still background and mux the audio."""
-    vf = (
-        f"ass={_escape_filter_path(str(ass_path))}"
-        f":fontsdir={_escape_filter_path(str(fonts_dir))}"
-    )
+    """Burn the ASS subtitle over the still background and mux the audio.
+
+    If ``ass_path`` is None (no lyrics found), the flat background is rendered
+    with audio only. ``duration`` enables a live progress callback (0..1).
+    """
+    vf = None
+    if ass_path is not None:
+        vf = (
+            f"ass={_escape_filter_path(str(ass_path))}"
+            f":fontsdir={_escape_filter_path(str(fonts_dir))}"
+        )
     if _has_nvenc():
         venc = ["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "vbr", "-cq", "20", "-b:v", "0"]
     else:
@@ -73,23 +90,33 @@ def compose_video(
         "ffmpeg", "-y",
         "-loop", "1", "-i", str(background),
         "-i", str(audio),
-        "-vf", vf,
+        *(["-vf", vf] if vf else []),
         "-r", str(fps),
         *venc,
         "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "192k",
         "-shortest", "-movflags", "+faststart",
+        "-progress", "pipe:1", "-nostats",
         str(out_path),
     ]
-    _run_ffmpeg(cmd, progress_cb)
+    _run_ffmpeg(cmd, duration=duration, progress_cb=progress_cb)
     return out_path
 
 
-def _run_ffmpeg(cmd: list[str], progress_cb=None) -> None:
-    """Run ffmpeg, surfacing stderr on failure."""
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+def _run_ffmpeg(cmd: list[str], duration: float = 0.0, progress_cb=None) -> None:
+    """Run ffmpeg, parsing -progress for a live callback; surface stderr on fail."""
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if proc.stdout is not None:
+        for line in proc.stdout:
+            if progress_cb and duration > 0 and line.startswith("out_time_ms="):
+                try:
+                    us = int(line.split("=", 1)[1])
+                    progress_cb(min(0.999, (us / 1_000_000) / duration))
+                except ValueError:
+                    pass
+    _, stderr = proc.communicate()
     if proc.returncode != 0:
-        tail = "\n".join(proc.stderr.strip().splitlines()[-25:])
+        tail = "\n".join((stderr or "").strip().splitlines()[-25:])
         raise RuntimeError(f"ffmpeg failed:\n{tail}")
 
 

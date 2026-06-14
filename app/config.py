@@ -28,14 +28,19 @@ THUMB_W = 1280
 THUMB_H = 720
 
 # Separation models exposed in the UI dropdown (docs/DECISIONS.md D5/D18).
-# The default Roformer checkpoint is picked empirically in Phase 1.
+# Default = BS-Roformer ep_317 (Viperx-1297), the top-SDR general Roformer; it
+# emits both Vocals + Instrumental in one pass (needed for guide-vocal, D6).
 SEP_MODELS = {
     "roformer": {
-        "label": "Roformer (best quality, slower)",
+        "label": "BS-Roformer (best quality, slower)",
         "filename": "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
     },
+    "roformer_inst": {
+        "label": "MelBand Roformer Inst (cleanest instrumental)",
+        "filename": "melband_roformer_inst_v2.ckpt",
+    },
     "mdxnet": {
-        "label": "MDX-NET (faster draft)",
+        "label": "MDX-NET Inst HQ (faster draft)",
         "filename": "UVR-MDX-NET-Inst_HQ_3.onnx",
     },
 }

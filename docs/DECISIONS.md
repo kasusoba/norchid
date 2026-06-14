@@ -26,7 +26,12 @@ Locked decisions from the planning session, with rationale. (Newest context wins
 | D20 | **User tests only the finished product** | No incremental user testing; next session builds through Phase 3 before handing back for testing. |
 
 ## Open / deferred
-- Default separation model: pick exact Roformer checkpoint during Phase 1 (still expose others in the dropdown).
+- ~~Default separation model: pick exact Roformer checkpoint during Phase 1.~~
+  **Resolved (Phase 1):** default = `model_bs_roformer_ep_317_sdr_12.9755.ckpt`
+  (BS-Roformer Viperx-1297) — top-SDR general Roformer, emits both stems in one
+  pass (needed for guide-vocal). Dropdown also exposes MelBand Roformer Inst v2
+  (cleanest instrumental) and UVR-MDX-NET Inst HQ 3 (faster draft). On an RTX 3060
+  a ~4-min song separates in ~40s.
 - SQLite job persistence (resume) — enhancement, not v1.
 - Local-file input fallback — add if yt-dlp reliability becomes an issue.
 - Phase 4: WhisperX word-level wipe, batch/playlist, 9:16 Shorts.

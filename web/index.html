@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>norchid — karaoke video maker</title>
+  <link rel="stylesheet" href="/static/app.css" />
+  <script defer src="/static/alpine.min.js"></script>
+</head>
+<body>
+<div class="wrap" x-data="norchid()" x-init="init()" x-cloak>
+
+  <header class="brand">
+    <h1>norchid</h1>
+    <span class="tag">YouTube → instrumental + scrolling-lyrics karaoke video</span>
+  </header>
+  <p class="sub">Paste a link, review the lyrics &amp; timing, render a 1080p60 video + thumbnail.</p>
+
+  <!-- ============ INPUT ============ -->
+  <template x-if="screen === 'input'">
+    <div class="card">
+      <label>YouTube URL</label>
+      <input type="text" x-model="form.url" placeholder="https://www.youtube.com/watch?v=…"
+             @keydown.enter="start()" />
+      <div class="spacer"></div>
+      <div class="row">
+        <div class="col">
+          <label>Separation model</label>
+          <select x-model="form.sep_model">
+            <template x-for="m in cfg.models" :key="m.id">
+              <option :value="m.id" x-text="m.label"></option>
+            </template>
+          </select>
+          <div class="hint">Roformer = best quality. MDX-NET = faster draft.</div>
+        </div>
+        <div class="col" style="display:flex;align-items:flex-end">
+          <button class="btn" @click="start()" :disabled="!form.url.trim()">Start →</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- ============ PROGRESS ============ -->
+  <template x-if="screen === 'progress'">
+    <div class="card">
+      <div class="flex-between">
+        <strong x-text="stageLabel"></strong>
+        <span class="stage-pill" x-text="job.stage"></span>
+      </div>
+      <div class="spacer"></div>
+      <div class="progress"><i :style="`width:${Math.round((job.progress||0)*100)}%`"></i></div>
+      <div class="spacer"></div>
+      <template x-if="job.meta && job.meta.title">
+        <p class="muted" x-text="`${job.meta.artist || ''} — ${job.meta.title}`"></p>
+      </template>
+      <div class="logs" x-ref="logbox" x-text="(job.logs||[]).join('\n')"></div>
+      <div class="hint">Separation is the slow step; the page updates live.</div>
+    </div>
+  </template>
+
+  <!-- ============ REVIEW ============ -->
+  <template x-if="screen === 'review'">
+    <div>
+      <div class="card">
+        <div class="meta">
+          <img :src="review.cover_url || ''" x-show="review.cover_url" alt="cover" />
+          <div>
+            <h3 x-text="review.meta.title"></h3>
+            <div class="muted" x-text="review.meta.artist"></div>
+            <div class="muted" style="margin-top:6px">
+              background <span class="swatch" :style="`background:rgb(${review.bg_color.join(',')})`"></span>
+              <span x-show="!review.has_synced" class="badge no" style="margin-left:8px">no synced lyrics found — paste below</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="flex-between">
+          <label style="margin:0">Lyric candidates (LRCLIB)</label>
+          <small class="muted" x-text="`${review.candidates.length} found`"></small>
+        </div>
+        <div class="spacer"></div>
+        <div class="candidates">
+          <template x-for="c in review.candidates" :key="c.id">
+            <div class="cand" @click="pickCandidate(c.id)">
+              <div>
+                <div x-text="`${c.trackName} — ${c.artistName}`"></div>
+                <small x-text="c.albumName || ''"></small>
+              </div>
+              <div>
+                <span class="badge" x-show="c.synced">synced</span>
+                <span class="badge no" x-show="!c.synced">plain</span>
+                <small x-show="c.duration" x-text="fmtDur(c.duration)"></small>
+              </div>
+            </div>
+          </template>
+          <div class="muted" x-show="!review.candidates.length">No candidates — paste your own LRC below.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <label>Lyrics (LRC) — edit freely, paste romaji, fix timing</label>
+        <textarea x-model="form.lrc" spellcheck="false"
+                  placeholder="[00:12.34] first line&#10;[00:15.00] second line"></textarea>
+        <div class="hint">Lines are <code>[mm:ss.xx] text</code>. Plain text without timestamps is ignored by the renderer.</div>
+
+        <div class="spacer"></div>
+        <div class="row">
+          <div class="col">
+            <label>Global offset (ms) — + delays lyrics</label>
+            <div style="display:flex;gap:8px">
+              <button class="btn ghost" @click="form.offset_ms -= 100">−100</button>
+              <input type="number" step="50" x-model.number="form.offset_ms" />
+              <button class="btn ghost" @click="form.offset_ms += 100">+100</button>
+            </div>
+          </div>
+          <div class="col">
+            <label>Thumbnail layout</label>
+            <div class="seg">
+              <button :class="form.layout==='cinematic' && 'on'" @click="form.layout='cinematic'">Cinematic</button>
+              <button :class="form.layout==='album' && 'on'" @click="form.layout='album'">Album</button>
+            </div>
+          </div>
+          <div class="col">
+            <label>Audio</label>
+            <div class="seg">
+              <button :class="form.vocal_mode==='instrumental' && 'on'" @click="form.vocal_mode='instrumental'">Instrumental</button>
+              <button :class="form.vocal_mode==='guide' && 'on'" @click="form.vocal_mode='guide'">Guide vocal</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="spacer"></div>
+        <button class="btn green" @click="submitReview()">Render video →</button>
+      </div>
+    </div>
+  </template>
+
+  <!-- ============ DONE ============ -->
+  <template x-if="screen === 'done'">
+    <div class="card">
+      <div class="flex-between">
+        <strong>Done ✅</strong>
+        <button class="btn ghost" @click="reset()">New song</button>
+      </div>
+      <div class="spacer"></div>
+      <video x-show="job.outputs.video" :src="job.outputs.video" controls></video>
+      <div class="downloads">
+        <a x-show="job.outputs.video" :href="job.outputs.video" download><button class="btn">↓ video.mp4</button></a>
+        <a x-show="job.outputs.thumbnail" :href="job.outputs.thumbnail" download><button class="btn ghost">↓ thumbnail.png</button></a>
+        <a x-show="job.outputs.instrumental" :href="job.outputs.instrumental" download><button class="btn ghost">↓ instrumental.wav</button></a>
+      </div>
+    </div>
+  </template>
+
+  <!-- ============ ERROR ============ -->
+  <template x-if="screen === 'error'">
+    <div class="card">
+      <div class="err" x-text="job.error || 'Something went wrong.'"></div>
+      <div class="logs" style="margin-top:12px" x-text="(job.logs||[]).join('\n')"></div>
+      <div class="spacer"></div>
+      <button class="btn ghost" @click="reset()">Start over</button>
+    </div>
+  </template>
+
+</div>
+
+<script>
+function norchid() {
+  return {
+    cfg: { models: [], layouts: [], vocal_modes: [], default: 'roformer' },
+    form: { url: '', sep_model: 'roformer', lrc: '', offset_ms: 0, layout: 'cinematic', vocal_mode: 'instrumental' },
+    jobId: null,
+    job: { status: null, stage: '', progress: 0, logs: [], outputs: {}, meta: {} },
+    review: { meta: {}, candidates: [], bg_color: [38,48,66], has_synced: false, cover_url: null },
+    reviewLoaded: false,
+    timer: null,
+
+    get screen() {
+      if (!this.jobId) return 'input';
+      const s = this.job.status;
+      if (s === 'error') return 'error';
+      if (s === 'done') return 'done';
+      if (s === 'awaiting_review') return 'review';
+      return 'progress';
+    },
+    get stageLabel() {
+      return ({downloading:'Downloading audio…', separating:'Separating instrumental…',
+               fetching_lyrics:'Fetching lyrics & cover…', rendering:'Rendering 1080p60 video…',
+               queued:'Queued…'})[this.job.stage] || 'Working…';
+    },
+
+    async init() {
+      try { this.cfg = await (await fetch('/api/models')).json();
+            this.form.sep_model = this.cfg.default; } catch (e) {}
+    },
+    fmtDur(s) { s = Math.round(s||0); return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`; },
+
+    async start() {
+      if (!this.form.url.trim()) return;
+      const r = await fetch('/api/jobs', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ youtube_url: this.form.url.trim(), sep_model: this.form.sep_model }) });
+      const d = await r.json();
+      this.jobId = d.job_id;
+      this.reviewLoaded = false;
+      this.startPolling();
+    },
+
+    startPolling() {
+      if (this.timer) clearInterval(this.timer);
+      this.timer = setInterval(() => this.poll(), 1200);
+      this.poll();
+    },
+    async poll() {
+      if (!this.jobId) return;
+      try {
+        this.job = await (await fetch(`/api/jobs/${this.jobId}`)).json();
+      } catch (e) { return; }
+      if (this.job.status === 'awaiting_review' && !this.reviewLoaded) this.loadReview();
+      if (this.job.status === 'done' || this.job.status === 'error') {
+        clearInterval(this.timer); this.timer = null;
+      }
+    },
+
+    async loadReview() {
+      this.review = await (await fetch(`/api/jobs/${this.jobId}/review`)).json();
+      this.form.lrc = this.review.lrc || '';
+      this.form.offset_ms = this.review.offset_ms || 0;
+      this.form.layout = this.review.thumbnail_layout || 'cinematic';
+      this.form.vocal_mode = this.review.vocal_mode || 'instrumental';
+      this.reviewLoaded = true;
+    },
+    async pickCandidate(cid) {
+      const d = await (await fetch(`/api/jobs/${this.jobId}/candidate/${cid}`)).json();
+      if (d.lrc) this.form.lrc = d.lrc;
+    },
+
+    async submitReview() {
+      await fetch(`/api/jobs/${this.jobId}/review`, { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ lrc: this.form.lrc, offset_ms: this.form.offset_ms,
+          thumbnail_layout: this.form.layout, vocal_mode: this.form.vocal_mode }) });
+      this.job.status = 'running'; this.job.stage = 'rendering';
+      this.startPolling();
+    },
+
+    reset() {
+      if (this.timer) clearInterval(this.timer);
+      this.jobId = null; this.reviewLoaded = false;
+      this.job = { status: null, stage: '', progress: 0, logs: [], outputs: {}, meta: {} };
+      this.form.url = '';
+    },
+  };
+}
+</script>
+</body>
+</html>

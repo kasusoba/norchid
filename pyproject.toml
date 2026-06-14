@@ -1,0 +1,35 @@
+[project]
+name = "norchid"
+version = "0.1.0"
+description = "YouTube URL -> instrumental + Spotify-style scrolling-lyrics karaoke video + thumbnail"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "python-multipart>=0.0.9",   # form/file uploads
+    "httpx>=0.27",               # LRCLIB + iTunes/Deezer
+    "yt-dlp>=2024.1.0",          # download audio + metadata
+    "audio-separator>=0.18",     # instrumental/vocal separation (pulls torch/onnxruntime)
+    "pillow>=10.0",              # thumbnails, generated backgrounds, dominant color
+]
+
+# System dependencies (NOT pip-installable):
+#   - ffmpeg (with libass)   -> video render + audio mux
+#   - Noto Sans CJK fonts    -> lyrics + CJK thumbnail titles (vendored in assets/fonts)
+#   - Montserrat ExtraBold   -> Latin thumbnail titles (vendored)
+# Optional:
+#   - CUDA-capable GPU       -> fast separation (CPU works, slower)
+
+[project.optional-dependencies]
+# Phase 4: word-level karaoke wipe
+wordwipe = ["whisperx"]
+
+[project.scripts]
+norchid = "app.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app", "pipeline"]

@@ -1,0 +1,23 @@
+# per-job artifacts
+workspace/
+outputs/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# model caches (audio-separator / torch)
+models/
+*.onnx
+*.ckpt
+*.pth
+
+# fonts are vendored intentionally; keep assets/fonts/
+
+# vendored fonts are large but intentional — keep them tracked
+!assets/fonts/

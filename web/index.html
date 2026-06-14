@@ -160,7 +160,7 @@
         <div class="seg">
           <template x-for="s in cfg.thumb_bg_sources" :key="s.id">
             <button :class="form.thumb_bg===s.id && 'on'"
-                    :disabled="s.id==='cover' && !review.has_cover"
+                    :disabled="s.id.startsWith('cover') && !review.has_cover"
                     @click="form.thumb_bg=s.id; refreshThumb()" x-text="s.label"></button>
           </template>
         </div>

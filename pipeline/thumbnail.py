@@ -110,6 +110,24 @@ def _cover_canvas(cover: Path) -> Image.Image:
     return _image_canvas(Image.open(cover).convert("RGB"), blur=22, brightness=0.62)
 
 
+def _cover_boxed_canvas(cover: Path) -> Image.Image:
+    """Sharp album cover boxed in the centre over a blurred-extended version of
+    itself; the centre is darkened so the cinematic title reads on top."""
+    src = Image.open(cover).convert("RGB")
+    canvas = _image_canvas(src, blur=30, brightness=0.5).convert("RGB")  # blurred bg
+    box = int(H * 0.84)
+    fg = src.copy(); fg.thumbnail((box, box))
+    canvas.paste(fg, ((W - fg.width) // 2, (H - fg.height) // 2))
+    # Darken toward the centre so the white title/pill stay legible over the cover.
+    overlay = Image.new("L", (1, H), 0)
+    for y in range(H):
+        d = 1 - abs((y - H * 0.5) / (H / 2))
+        overlay.putpixel((0, y), int(150 * max(0, d) ** 0.7))
+    canvas = Image.composite(Image.new("RGB", (W, H), (0, 0, 0)),
+                             canvas, overlay.resize((W, H)))
+    return canvas.convert("RGBA")
+
+
 def download_yt_thumb(url: str | None, work_dir: Path) -> Path | None:
     if not url:
         return None
@@ -166,9 +184,11 @@ def make_cinematic(title: str, secondary: str | None, yt_thumb: Path | None,
                    bg_color, out: Path, title_size: int = config.THUMB_TITLE_SIZE,
                    cover: Path | None = None, bg_source: str = "youtube",
                    pill_size: int = config.THUMB_PILL_SIZE) -> Path:
-    # Background: YouTube thumbnail (default) or the album cover, blurred-extended.
-    use_cover = bg_source == "cover" and cover and Path(cover).exists()
-    if use_cover:
+    # Background: YouTube thumbnail (default), cover blurred-fill, or cover boxed.
+    have_cover = cover and Path(cover).exists()
+    if bg_source == "cover_boxed" and have_cover:
+        canvas, pill_src = _cover_boxed_canvas(cover), cover
+    elif bg_source == "cover" and have_cover:
         canvas, pill_src = _cover_canvas(cover), cover
     elif yt_thumb:
         canvas, pill_src = _yt_canvas(yt_thumb), yt_thumb

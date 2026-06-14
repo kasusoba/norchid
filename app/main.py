@@ -38,6 +38,7 @@ class CreateJob(BaseModel):
 
 class ReviewSubmit(BaseModel):
     lrc: str | None = None
+    romaji: str | None = None
     offset_ms: int = 0
     vocal_mode: str = "instrumental"
     bg_mode: str = config.DEFAULT_BG_MODE
@@ -48,6 +49,7 @@ class ReviewSubmit(BaseModel):
 
 class PreviewFrame(BaseModel):
     lrc: str | None = None
+    romaji: str | None = None
     offset_ms: int = 0
     t: float = 0.0
     bg_mode: str = config.DEFAULT_BG_MODE
@@ -116,7 +118,7 @@ def submit_review(jid: str, body: ReviewSubmit):
         raise HTTPException(409, f"job not ready for review (status={job.status})")
     if not job.ctx:
         raise HTTPException(409, "job has no prepared context yet")
-    manager.submit_review(job, lrc=body.lrc, offset_ms=body.offset_ms,
+    manager.submit_review(job, lrc=body.lrc, romaji=body.romaji, offset_ms=body.offset_ms,
                           vocal_mode=body.vocal_mode, bg_mode=body.bg_mode,
                           title_secondary=body.title_secondary, title_size=body.title_size,
                           lyric_size=body.lyric_size)
@@ -173,7 +175,7 @@ def preview_frame(jid: str, body: PreviewFrame):
         if body.lrc and body.lrc.strip():
             ass_path = work_dir / "preview.ass"
             ass_render.write_ass(body.lrc, str(ass_path), duration=ctx["duration"],
-                                 offset_ms=body.offset_ms,
+                                 offset_ms=body.offset_ms, romaji=body.romaji,
                                  scroll=config.scroll_for(body.lyric_size))
         video.render_still(background, ass_path, body.t, out)
     except Exception as e:  # noqa: BLE001

@@ -41,6 +41,7 @@ class Job:
     # Internal (not serialized verbatim to the client).
     ctx: dict | None = None
     lrc: str | None = None
+    romaji: str | None = None
     lrc_candidates: list = field(default_factory=list)
 
     def public(self) -> dict:
@@ -134,9 +135,10 @@ class JobManager:
                 return c.get("syncedLyrics") or c.get("plainLyrics")
         return None
 
-    def submit_review(self, job: Job, *, lrc, offset_ms, vocal_mode, bg_mode,
+    def submit_review(self, job: Job, *, lrc, romaji, offset_ms, vocal_mode, bg_mode,
                       title_secondary, title_size, lyric_size) -> None:
         job.lrc = lrc
+        job.romaji = romaji
         job.offset_ms = int(offset_ms or 0)
         job.vocal_mode = vocal_mode or "instrumental"
         job.bg_mode = bg_mode if bg_mode in config.BG_MODES else config.DEFAULT_BG_MODE
@@ -187,7 +189,7 @@ class JobManager:
                     out_dir = config.OUTPUTS / job.id
                     outputs = runner.finalize(
                         job.ctx, work_dir, out_dir,
-                        lrc=job.lrc, offset_ms=job.offset_ms,
+                        lrc=job.lrc, romaji=job.romaji, offset_ms=job.offset_ms,
                         vocal_mode=job.vocal_mode, bg_mode=job.bg_mode,
                         title_secondary=job.title_secondary, title_size=job.title_size,
                         lyric_size=job.lyric_size,

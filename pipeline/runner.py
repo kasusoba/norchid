@@ -95,7 +95,7 @@ def prepare(url: str, work_dir: Path, sep_model: str = config.DEFAULT_SEP_MODEL,
 
 
 def finalize(ctx: dict, work_dir: Path, out_dir: Path, *,
-             lrc: str | None, offset_ms: int = 0,
+             lrc: str | None, romaji: str | None = None, offset_ms: int = 0,
              vocal_mode: str = "instrumental",
              bg_mode: str = config.DEFAULT_BG_MODE,
              title_secondary: str | None = None,
@@ -111,8 +111,9 @@ def finalize(ctx: dict, work_dir: Path, out_dir: Path, *,
     if lrc and lrc.strip():
         ass_path = work_dir / "lyrics.ass"
         n = ass_render.write_ass(lrc, str(ass_path), duration=duration, offset_ms=offset_ms,
-                                 scroll=config.scroll_for(lyric_size))
-        log(f"  wrote ASS with {len(n)} lines (offset={offset_ms}ms, size={lyric_size or 'default'})")
+                                 romaji=romaji, scroll=config.scroll_for(lyric_size))
+        log(f"  wrote ASS with {len(n)} lines (offset={offset_ms}ms, size={lyric_size or 'default'}"
+            f"{', +romaji' if romaji and romaji.strip() else ''})")
     else:
         log("  no lyrics — rendering background + audio only")
     progress(0.2)

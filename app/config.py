@@ -32,12 +32,18 @@ THUMB_TITLE_SIZE = 110   # default cinematic title start size (px), tunable in r
 # (served via /api/render-config) so they look the same. Spotify-style: lines
 # hold centered, then scroll up one slot over TRANSITION_MS at each line change.
 SCROLL = {
-    "font_size": 60,        # px (PlayResY space)
-    "line_spacing": 104,    # px between line centers
-    "visible_radius": 6,    # lines emitted above/below active (covers 1080 + off-screen)
-    "transition_ms": 240,   # scroll/handoff duration at each line change (snappy)
-    "alpha_active": 0.0,    # 0 = opaque
-    "alpha_inactive": 0.55, # 0.55 transparent == 45% opacity (D10)
+    "font_size": 60,            # px (PlayResY space)
+    "line_gap_ratio": 1.733,    # line spacing = font_size * this (no romaji)
+    "line_gap_ratio_romaji": 2.55,  # wider spacing when romaji rides under each line
+    "romaji_size_ratio": 0.52,  # romaji font = font_size * this
+    "romaji_offset_ratio": 0.92,    # romaji center below the native line center
+    "visible_radius": 6,        # lines emitted above/below active
+    "transition_ms": 240,       # scroll/handoff duration (snappy)
+    # 3 states (Spotify): active (current), passed (already sung, above),
+    # upcoming (not reached, below). Values are ASS \alpha transparency (0=opaque).
+    "alpha_active": 0.0,        # opacity 1.0
+    "alpha_passed": 0.42,       # opacity ~0.58
+    "alpha_upcoming": 0.66,     # opacity ~0.34
 }
 
 # Video background modes (review step). "color" = flat album color (default),
@@ -80,13 +86,10 @@ GUIDE_VOCAL_GAIN = 0.15
 
 
 def scroll_for(font_size: int | None) -> dict:
-    """Scroll geometry for a chosen lyric font size (line spacing scales with it)."""
-    base = SCROLL
+    """Scroll params for a chosen lyric font size (ratios stay; size overrides)."""
     if not font_size:
-        return base
-    fs = max(28, min(110, int(font_size)))
-    ratio = base["line_spacing"] / base["font_size"]
-    return {**base, "font_size": fs, "line_spacing": round(fs * ratio)}
+        return SCROLL
+    return {**SCROLL, "font_size": max(28, min(110, int(font_size)))}
 
 
 def use_gpu() -> bool:

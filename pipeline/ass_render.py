@@ -1,14 +1,14 @@
 """LRC -> ASS subtitle: smooth Spotify-style scrolling lyrics.
 
 Each lyric line is its own positioned event. Within an inter-line interval the
-line **holds** centered, then over the last TRANSITION_MS it **scrolls up one
-slot** (via \\move) while the highlight hands off to the next line (\\t on
-\\alpha). Because consecutive events share identical positions at their shared
-boundary, the motion is continuous — a true scroll, not a per-line redraw.
+line holds, then over the last TRANSITION_MS it scrolls up one slot (\\move)
+while the highlight hands off to the next line. Three states (Spotify): the
+current line is bright (active), already-sung lines above are mid (passed), and
+not-yet-reached lines below are dim (upcoming). An optional romaji/romanization
+line rides in a smaller font under each line.
 
-The scroll geometry (font size, line spacing, transition, opacity) lives in
-``app.config.SCROLL`` and is shared with the browser preview so they match.
-See docs/ARCHITECTURE.md §4 and docs/DECISIONS.md D8/D10/D14.
+Geometry + opacity live in ``app.config.SCROLL`` and are shared with the browser
+preview (via /api/render-config) so they match. See docs/ARCHITECTURE.md §4.
 """
 
 from __future__ import annotations
@@ -18,27 +18,19 @@ from dataclasses import dataclass
 
 from app import config
 
-# Black weight (heavier than Bold) — punchier, not skinny at lyric size. The
-# unique family name lets libass pick this exact face from fontsdir.
 LYRIC_FONT = "Noto Sans CJK JP Black"  # full CJK: Latin/romaji + kana/kanji + Hangul
 
-# LRC timestamp:  [mm:ss.xx] or [mm:ss.xxx] or [mm:ss]
 _LRC_TIME = re.compile(r"\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]")
 
 
 @dataclass
 class LyricLine:
-    t: float  # start time in seconds (offset already applied)
+    t: float
     text: str
 
 
 def parse_lrc(lrc: str, offset_ms: int = 0) -> list[LyricLine]:
-    """Parse LRC text into time-sorted lyric lines, applying a global offset.
-
-    - Supports multiple timestamps per line (expanded into separate lines).
-    - Drops metadata-only tags ([ar:], [ti:], [length:], ...) and empty lines.
-    - A negative offset can push times earlier; results are clamped at >= 0.
-    """
+    """Parse LRC text into time-sorted lyric lines, applying a global offset."""
     out: list[LyricLine] = []
     offset = offset_ms / 1000.0
     for raw in lrc.splitlines():
@@ -47,20 +39,36 @@ def parse_lrc(lrc: str, offset_ms: int = 0) -> list[LyricLine]:
             continue
         text = _LRC_TIME.sub("", raw).strip()
         if not text:
-            continue  # purely a timing line with no words
+            continue
         for m in stamps:
             mm, ss, frac = m.group(1), m.group(2), m.group(3)
             t = int(mm) * 60 + int(ss)
             if frac:
                 t += int(frac.ljust(3, "0")) / 1000.0
-            t = max(0.0, t + offset)
-            out.append(LyricLine(t=t, text=text))
+            out.append(LyricLine(t=max(0.0, t + offset), text=text))
     out.sort(key=lambda x: x.t)
     return out
 
 
+def align_romaji(native: list[LyricLine], romaji_text: str | None,
+                 offset_ms: int = 0) -> list[str]:
+    """Build a romaji string per native line. Accepts a romaji LRC (matched by
+    nearest timestamp) or plain lines in order (matched by index)."""
+    n = len(native)
+    if not romaji_text or not romaji_text.strip():
+        return [""] * n
+    timed = parse_lrc(romaji_text, offset_ms=offset_ms)
+    if timed:
+        out = []
+        for nl in native:
+            best = min(timed, key=lambda r: abs(r.t - nl.t))
+            out.append(best.text if abs(best.t - nl.t) < 0.45 else "")
+        return out
+    plain = [ln.strip() for ln in romaji_text.splitlines() if ln.strip()]
+    return [plain[i] if i < len(plain) else "" for i in range(n)]
+
+
 def _ass_time(seconds: float) -> str:
-    """Format seconds as ASS H:MM:SS.cc (centiseconds)."""
     seconds = max(0.0, seconds)
     cs = int(round(seconds * 100))
     h, cs = divmod(cs, 360000)
@@ -70,37 +78,41 @@ def _ass_time(seconds: float) -> str:
 
 
 def _escape(text: str) -> str:
-    """Escape characters special to ASS so lyric text renders literally."""
     return text.replace("\\", "\\​").replace("{", "(").replace("}", ")")
 
 
-def _alpha_tag(opacity_transparent: float) -> str:
-    """ASS \\alpha hex from a 0..1 transparency (0 = opaque)."""
+def _atag(opacity_transparent: float) -> str:
     return f"&H{max(0, min(255, round(opacity_transparent * 255))):02X}&"
 
 
 def build_ass(
     lines: list[LyricLine],
     duration: float,
+    romaji: list[str] | None = None,
     width: int = config.WIDTH,
     height: int = config.HEIGHT,
     font: str = LYRIC_FONT,
     scroll: dict | None = None,
 ) -> str:
-    """Build a full ASS document with the smooth scrolling-highlight effect."""
     s = scroll or config.SCROLL
-    font_size = s["font_size"]
-    L = s["line_spacing"]
+    fs = s["font_size"]
+    romaji = romaji or [""] * len(lines)
+    has_romaji = any(romaji)
+
+    gap_ratio = s["line_gap_ratio_romaji"] if has_romaji else s["line_gap_ratio"]
+    L = round(fs * gap_ratio)
+    romaji_size = round(fs * s["romaji_size_ratio"])
+    romaji_dy = round(fs * s["romaji_offset_ratio"])
     vr = s["visible_radius"]
     tw_ms = s["transition_ms"]
-    a_active = _alpha_tag(s["alpha_active"])
-    a_inact = _alpha_tag(s["alpha_inactive"])
+    a_active, a_passed, a_upcoming = (
+        _atag(s["alpha_active"]), _atag(s["alpha_passed"]), _atag(s["alpha_upcoming"]))
+
+    ass_fs = round(fs * config.CJK_LIBASS_SCALE)
+    ass_romaji_fs = round(romaji_size * config.CJK_LIBASS_SCALE)
 
     cx = width // 2
     mid = height / 2
-    # libass renders Noto CJK smaller than a browser at the same nominal size;
-    # scale the Fontsize so the video glyphs match the live preview (config note).
-    ass_font_size = round(font_size * config.CJK_LIBASS_SCALE)
 
     header = f"""[Script Info]
 ; norchid scrolling-lyrics render
@@ -113,7 +125,8 @@ YCbCr Matrix: TV.709
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Lyric,{font},{ass_font_size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,5,40,40,0,1
+Style: Lyric,{font},{ass_fs},&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,5,40,40,0,1
+Style: Romaji,{font},{ass_romaji_fs},&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,5,40,40,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -122,17 +135,39 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     n = len(lines)
     events: list[str] = []
 
-    # Intro: before the first lyric, hold the opening window centered (Spotify
-    # shows upcoming lines waiting). All lines stay DIM — nothing is highlighted
-    # until its own timestamp is reached. Matches the browser preview.
+    def emit(text, style, y0, y1, move_start, d_ms, alpha_frag, start_s, end_s):
+        if not text:
+            return
+        if y1 == y0:
+            pos = f"\\pos({cx},{y0:.0f})"
+        else:
+            pos = f"\\move({cx},{y0:.0f},{cx},{y1:.0f},{move_start},{d_ms})"
+        events.append(
+            f"Dialogue: 0,{start_s},{end_s},{style},,0,0,0,,"
+            f"{{\\an5{pos}{alpha_frag}}}{_escape(text)}")
+
+    def alpha_frag(j, i, last, move_start, d_ms):
+        if last:
+            a = a_active if j == i else (a_passed if j < i else a_upcoming)
+            return f"\\alpha{a}"
+        if j < i:
+            return f"\\alpha{a_passed}"
+        if j == i:
+            return f"\\alpha{a_active}\\t({move_start},{d_ms},\\alpha{a_passed})"
+        if j == i + 1:
+            return f"\\alpha{a_upcoming}\\t({move_start},{d_ms},\\alpha{a_active})"
+        return f"\\alpha{a_upcoming}"
+
+    # Intro: opening window, all DIM (upcoming) — nothing highlighted until reached.
     if lines and lines[0].t > 0.05:
+        s0, e0 = _ass_time(0), _ass_time(lines[0].t)
         for j in range(0, vr + 1):
             if j >= n:
                 break
             y = mid + j * L
-            events.append(
-                f"Dialogue: 0,{_ass_time(0)},{_ass_time(lines[0].t)},Lyric,,0,0,0,,"
-                f"{{\\an5\\pos({cx},{y:.0f})\\alpha{a_inact}}}{_escape(lines[j].text)}")
+            frag = f"\\alpha{a_upcoming}"
+            emit(lines[j].text, "Lyric", y, y, 0, 1, frag, s0, e0)
+            emit(romaji[j], "Romaji", y + romaji_dy, y + romaji_dy, 0, 1, frag, s0, e0)
 
     for i in range(n):
         t0 = lines[i].t
@@ -143,42 +178,19 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         d_ms = int(round((t1 - t0) * 1000))
         tw = 0 if last else min(tw_ms, d_ms)
         move_start = d_ms - tw
+        s0, e0 = _ass_time(t0), _ass_time(t1)
 
         for j in range(i - vr, i + vr + 1):
             if not (0 <= j < n):
                 continue
             y0 = mid + (j - i) * L
             y1 = y0 if last else y0 - L
-            ev = _line_event(
-                lines[j].text, j, i, last, cx, y0, y1, move_start, d_ms,
-                a_active, a_inact, _ass_time(t0), _ass_time(t1))
-            events.append(ev)
+            frag = alpha_frag(j, i, last, move_start, d_ms)
+            emit(lines[j].text, "Lyric", y0, y1, move_start, d_ms, frag, s0, e0)
+            emit(romaji[j], "Romaji", y0 + romaji_dy, y1 + romaji_dy,
+                 move_start, d_ms, frag, s0, e0)
+
     return header + "\n".join(events) + "\n"
-
-
-def _line_event(text, j, i, last, cx, y0, y1, move_start, d_ms,
-                a_active, a_inact, start_s, end_s) -> str:
-    """One Dialogue: line j during the interval starting at line i."""
-    body = _escape(text)
-    # Position: hold at y0, then scroll to y1 between move_start..d_ms.
-    if y1 == y0:
-        pos = f"\\pos({cx},{y0:.0f})"
-    else:
-        pos = f"\\move({cx},{y0:.0f},{cx},{y1:.0f},{move_start},{d_ms})"
-
-    if last:
-        alpha = a_active if j == i else a_inact
-        tags = f"{{\\an5{pos}\\alpha{alpha}}}"
-    elif j == i:        # active now -> dims as it scrolls up
-        tags = (f"{{\\an5{pos}\\alpha{a_active}"
-                f"\\t({move_start},{d_ms},\\alpha{a_inact})}}")
-    elif j == i + 1:    # next line -> brightens into the center
-        tags = (f"{{\\an5{pos}\\alpha{a_inact}"
-                f"\\t({move_start},{d_ms},\\alpha{a_active})}}")
-    else:               # neighbor -> stays dim while scrolling
-        tags = f"{{\\an5{pos}\\alpha{a_inact}}}"
-
-    return f"Dialogue: 0,{start_s},{end_s},Lyric,,0,0,0,,{tags}{body}"
 
 
 def write_ass(
@@ -186,16 +198,18 @@ def write_ass(
     out_path: str,
     duration: float,
     offset_ms: int = 0,
+    romaji: str | None = None,
     width: int = config.WIDTH,
     height: int = config.HEIGHT,
     font: str = LYRIC_FONT,
     scroll: dict | None = None,
 ) -> list[LyricLine]:
-    """Convenience: parse LRC -> build ASS -> write file. Returns parsed lines."""
+    """Parse LRC (+ optional romaji) -> build ASS -> write file. Returns lines."""
     lines = parse_lrc(lrc, offset_ms=offset_ms)
     if not lines:
         raise ValueError("No timed lyric lines parsed from LRC input.")
-    ass = build_ass(lines, duration, width, height, font, scroll)
+    romaji_texts = align_romaji(lines, romaji, offset_ms=offset_ms)
+    ass = build_ass(lines, duration, romaji_texts, width, height, font, scroll)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(ass)
     return lines

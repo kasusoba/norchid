@@ -36,6 +36,8 @@ def _build_parser() -> argparse.ArgumentParser:
                    choices=list(config.BG_MODES), help="video background mode")
     p.add_argument("--lrc-file", type=Path, default=None,
                    help="use a custom .lrc file instead of LRCLIB")
+    p.add_argument("--romaji-file", type=Path, default=None,
+                   help="optional romaji/romanization (LRC or plain lines in order)")
     p.add_argument("--out-dir", type=Path, default=config.OUTPUTS,
                    help="where to copy final outputs")
     p.add_argument("--keep-workspace", action="store_true",
@@ -68,9 +70,10 @@ def main(argv=None) -> int:
             log("WARNING: no synced lyrics found — video will have no lyrics. "
                 "Provide --lrc-file to add them.")
 
+        romaji = args.romaji_file.read_text(encoding="utf-8") if args.romaji_file else None
         outputs = runner.finalize(
             ctx, work_dir, out_dir,
-            lrc=lrc, offset_ms=args.offset_ms,
+            lrc=lrc, romaji=romaji, offset_ms=args.offset_ms,
             vocal_mode=args.vocal_mode, bg_mode=args.bg_mode,
             title_secondary=args.title_secondary, title_size=args.title_size,
             lyric_size=args.lyric_size,

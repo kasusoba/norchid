@@ -8,7 +8,7 @@
   <script defer src="/static/alpine.min.js"></script>
 </head>
 <body>
-<div class="wrap" x-data="norchid()" x-init="init()" x-cloak>
+<div class="wrap" :class="{ wide: screen === 'review' }" x-data="norchid()" x-init="init()" x-cloak>
 
   <header class="brand">
     <h1>norchid</h1>
@@ -18,25 +18,20 @@
 
   <!-- ============ INPUT ============ -->
   <template x-if="screen === 'input'">
-    <div class="card">
+    <div class="card" style="max-width:640px;margin:0 auto">
       <label>YouTube URL</label>
       <input type="text" x-model="form.url" placeholder="https://www.youtube.com/watch?v=…"
              @keydown.enter="start()" />
       <div class="spacer"></div>
-      <div class="row">
-        <div class="col">
-          <label>Separation model</label>
-          <select x-model="form.sep_model">
-            <template x-for="m in cfg.models" :key="m.id">
-              <option :value="m.id" x-text="m.label"></option>
-            </template>
-          </select>
-          <div class="hint">Roformer = best quality. MDX-NET = faster draft.</div>
-        </div>
-        <div class="col" style="display:flex;align-items:flex-end">
-          <button class="btn" @click="start()" :disabled="!form.url.trim()">Start →</button>
-        </div>
-      </div>
+      <label>Separation model</label>
+      <select x-model="form.sep_model">
+        <template x-for="m in cfg.models" :key="m.id">
+          <option :value="m.id" x-text="m.label"></option>
+        </template>
+      </select>
+      <div class="hint">Roformer = best quality. MDX-NET = faster draft.</div>
+      <div class="spacer"></div>
+      <button class="btn block" @click="start()" :disabled="!form.url.trim()">Start →</button>
     </div>
   </template>
 
@@ -59,9 +54,10 @@
   </template>
 
   <!-- ============ REVIEW (x-show, not x-if, so preview refs stay stable) ============ -->
-  <div x-show="screen === 'review'">
-    <div>
-      <!-- live preview -->
+  <div x-show="screen === 'review'" class="rgrid">
+
+    <!-- LEFT: sticky preview + render -->
+    <aside class="rleft">
       <div class="card">
         <div class="flex-between" style="margin-bottom:10px">
           <strong x-text="`${review.meta.artist || ''} — ${review.meta.title || ''}`"></strong>
@@ -69,16 +65,18 @@
         </div>
         <div class="preview" x-ref="stage" :style="bgStyle">
           <div class="pv-canvas" x-ref="canvas"></div>
-          <div class="pv-empty" x-show="!parsed.length && !realFrame">no timed lyrics — paste LRC below</div>
+          <div class="pv-empty" x-show="!parsed.length && !realFrame">no timed lyrics — paste LRC →</div>
           <div class="realframe" x-show="realFrame" :style="realFrame ? `background-image:url(${realFrame})` : ''"></div>
         </div>
         <div class="transport">
-          <button class="btn play" @click="togglePlay()" x-text="playing ? '❚❚' : '►'"></button>
+          <button class="btn play" @click="togglePlay()" x-text="playing ? '⏸' : '▶'"></button>
           <input type="range" min="0" :max="pvDuration || 1" step="0.05" x-ref="scrub"
                  value="0" @input="seek($event.target.value)" />
           <span class="time" x-ref="timeLabel">0:00 / 0:00</span>
         </div>
-        <div class="flex-between" style="margin-top:10px">
+        <div class="spacer"></div>
+        <label>Background</label>
+        <div class="flex-between">
           <div class="bgsel">
             <template x-for="b in review.backgrounds" :key="b.id">
               <button :class="form.bg_mode===b.id && 'on'" :disabled="!b.available"
@@ -86,17 +84,57 @@
             </template>
           </div>
           <button class="btn ghost" @click="refreshRealFrame()" title="render one exact libass frame here">
-            ⟳ exact frame
+            ⟳ exact
           </button>
         </div>
+        <div class="spacer"></div>
+        <button class="btn green block" @click="submitReview()">Render video →</button>
+      </div>
+    </aside>
+
+    <!-- RIGHT: scrollable controls -->
+    <div class="rright">
+      <!-- lyrics + romaji -->
+      <div class="card">
+        <div class="ctl-label"><label style="margin:0">Lyrics (LRC)</label>
+          <small class="muted" x-text="`${parsed.length} lines`"></small></div>
+        <textarea x-model="form.lrc" spellcheck="false" @input.debounce.250ms="onLrcChange()"
+                  placeholder="[00:12.34] first line&#10;[00:15.00] second line"></textarea>
+        <div class="hint">Lines are <code>[mm:ss.xx] text</code>. Edits update the preview live.</div>
+
+        <div class="spacer"></div>
+        <label>Romanization (optional) — shown smaller under each line</label>
+        <textarea x-model="form.romaji" spellcheck="false" @input.debounce.250ms="onRomajiChange()" style="min-height:140px"
+                  placeholder="romaji as an LRC (matched by time) — or one line per lyric, in order"></textarea>
+        <div class="hint">Best with timestamps (matched to lyric times). Plain lines match by order.</div>
+
+        <div class="spacer"></div>
+        <div class="row">
+          <div class="col">
+            <label>Offset (ms) — + delays lyrics</label>
+            <div style="display:flex;gap:8px">
+              <button class="btn ghost" @click="nudge(-100)">−100</button>
+              <input type="number" step="50" x-model.number="form.offset_ms" @input.debounce.150ms="onOffsetChange()" />
+              <button class="btn ghost" @click="nudge(100)">+100</button>
+            </div>
+          </div>
+          <div class="col">
+            <label>Audio</label>
+            <div class="seg">
+              <button :class="form.vocal_mode==='instrumental' && 'on'" @click="setVocal('instrumental')">Instrumental</button>
+              <button :class="form.vocal_mode==='guide' && 'on'" @click="setVocal('guide')">Guide</button>
+            </div>
+          </div>
+        </div>
+        <div class="spacer"></div>
+        <div class="ctl-label"><label style="margin:0">Lyric font size</label><b x-text="form.lyric_size + ' px'"></b></div>
+        <input type="range" min="36" max="96" step="2" x-model.number="form.lyric_size" @input="onLyricSize()" />
       </div>
 
       <!-- lyric candidates -->
       <div class="card">
-        <div class="flex-between">
-          <label style="margin:0">Lyric candidates (LRCLIB)</label>
-          <small class="muted" x-text="`${review.candidates.length} found`"></small>
-        </div>
+        <div class="ctl-label"><label style="margin:0">Swap LRCLIB match</label>
+          <small class="muted" x-text="`${review.candidates.length} found`"></small></div>
         <div class="spacer"></div>
         <div class="candidates">
           <template x-for="c in review.candidates" :key="c.id">
@@ -112,66 +150,27 @@
               </div>
             </div>
           </template>
-          <div class="muted" x-show="!review.candidates.length">No candidates — paste your own LRC below.</div>
+          <div class="muted" x-show="!review.candidates.length">No candidates — paste your own LRC above.</div>
         </div>
-      </div>
-
-      <!-- lyrics + timing -->
-      <div class="card">
-        <label>Lyrics (LRC) — edits update the preview live</label>
-        <textarea x-model="form.lrc" spellcheck="false" @input.debounce.250ms="onLrcChange()"
-                  placeholder="[00:12.34] first line&#10;[00:15.00] second line"></textarea>
-        <div class="hint">Lines are <code>[mm:ss.xx] text</code>. Plain lines without timestamps are ignored.</div>
-
-        <div class="spacer"></div>
-        <div class="row">
-          <div class="col">
-            <label>Global offset (ms) — + delays lyrics</label>
-            <div style="display:flex;gap:8px">
-              <button class="btn ghost" @click="nudge(-100)">−100</button>
-              <input type="number" step="50" x-model.number="form.offset_ms" @input.debounce.150ms="onOffsetChange()" />
-              <button class="btn ghost" @click="nudge(100)">+100</button>
-            </div>
-            <div class="hint">Tip: play the preview and nudge until the highlight hits the beat.</div>
-          </div>
-          <div class="col">
-            <label>Audio</label>
-            <div class="seg">
-              <button :class="form.vocal_mode==='instrumental' && 'on'" @click="setVocal('instrumental')">Instrumental</button>
-              <button :class="form.vocal_mode==='guide' && 'on'" @click="setVocal('guide')">Guide vocal</button>
-            </div>
-            <div class="hint" x-show="form.vocal_mode==='guide' && !review.vocal_url">Guide applied at render (no vocal stem for preview).</div>
-          </div>
-        </div>
-        <div class="spacer"></div>
-        <label>Lyric font size — <span x-text="form.lyric_size"></span> px (preview updates live)</label>
-        <input type="range" min="36" max="96" step="2" x-model.number="form.lyric_size"
-               @input="onLyricSize()" style="width:100%;accent-color:var(--accent)" />
       </div>
 
       <!-- thumbnail -->
       <div class="card">
-        <label>Japanese / secondary title (optional) — shown under the title in 「」</label>
+        <label>Thumbnail — Japanese / secondary title (optional)</label>
         <input type="text" x-model="form.title_secondary" @input.debounce.400ms="refreshThumb()"
                placeholder="e.g. 東京フラッシュ (auto-filled from iTunes when available)" />
-        <div class="hint" x-show="review.title_secondary">Suggested: <span x-text="review.title_secondary"></span></div>
         <div class="spacer"></div>
-        <label>Title size — <span x-text="form.title_size"></span> px</label>
-        <input type="range" min="48" max="170" step="2" x-model.number="form.title_size"
-               @input.debounce.250ms="refreshThumb()" style="width:100%;accent-color:var(--accent)" />
+        <div class="ctl-label"><label style="margin:0">Title size</label><b x-text="form.title_size + ' px'"></b></div>
+        <input type="range" min="48" max="170" step="2" x-model.number="form.title_size" @input.debounce.250ms="refreshThumb()" />
         <div class="spacer"></div>
         <img class="thumb-preview" :src="thumbSrc" alt="thumbnail preview" />
       </div>
-
-      <div class="card">
-        <button class="btn green" @click="submitReview()">Render video →</button>
-      </div>
-
-      <!-- audio elements driving the preview -->
-      <audio x-ref="inst" :src="review.instrumental_url" preload="auto"
-             @loadedmetadata="onAudioReady()" @ended="onEnded()"></audio>
-      <audio x-ref="voc" :src="review.vocal_url || ''" preload="auto"></audio>
     </div>
+
+    <!-- audio elements driving the preview -->
+    <audio x-ref="inst" :src="review.instrumental_url" preload="auto"
+           @loadedmetadata="onAudioReady()" @ended="onEnded()"></audio>
+    <audio x-ref="voc" :src="review.vocal_url || ''" preload="auto"></audio>
   </div>
 
   <!-- ============ DONE ============ -->
@@ -207,8 +206,9 @@
 function norchid() {
   return {
     cfg: { models: [], default: 'roformer' },
-    rcfg: { width: 1920, height: 1080, scroll: { font_size: 60, line_spacing: 104, visible_radius: 6, transition_ms: 450, alpha_active: 0, alpha_inactive: 0.55 } },
-    form: { url: '', sep_model: 'roformer', lrc: '', offset_ms: 0, vocal_mode: 'instrumental', bg_mode: 'color', title_secondary: '', title_size: 110, lyric_size: 60 },
+    rcfg: { width: 1920, height: 1080, scroll: { font_size: 60, line_gap_ratio: 1.733, line_gap_ratio_romaji: 2.55, romaji_size_ratio: 0.52, romaji_offset_ratio: 0.92, visible_radius: 6, transition_ms: 240, alpha_active: 0, alpha_passed: 0.42, alpha_upcoming: 0.66 } },
+    form: { url: '', sep_model: 'roformer', lrc: '', romaji: '', offset_ms: 0, vocal_mode: 'instrumental', bg_mode: 'color', title_secondary: '', title_size: 110, lyric_size: 60 },
+    romajiLines: [],
     jobId: null,
     job: { status: null, stage: '', progress: 0, logs: [], outputs: {}, meta: {} },
     review: { meta: {}, candidates: [], bg_color: [38,48,66], has_synced: false, backgrounds: [], thumbnail_url: null, instrumental_url: null, vocal_url: null, duration: 0, title_secondary: '' },
@@ -278,7 +278,7 @@ function norchid() {
       this.form.title_secondary = this.review.title_secondary || '';
       this.thumbSrc = this.review.thumbnail_url + '?_=' + Date.now();
       this.reviewLoaded = true;
-      this.parsed = this.parseLrc(this.form.lrc, this.form.offset_ms);
+      this.reparse();
       this._dirty = true;   // the persistent renderLoop() rebuilds + renders next frame
     },
 
@@ -314,45 +314,76 @@ function norchid() {
       if (tau < moveStart) return i;
       return i + Math.min(1, Math.max(0, (tau - moveStart) / Math.max(1e-3, t1 - moveStart)));
     },
+    alignRomaji(native, text, offsetMs) {
+      const n = native.length;
+      if (!text || !text.trim()) return new Array(n).fill('');
+      const timed = this.parseLrc(text, offsetMs);
+      if (timed.length) {
+        return native.map(nl => {
+          let best = '', bd = Infinity;
+          for (const r of timed) { const d = Math.abs(r.t - nl.t); if (d < bd) { bd = d; best = r.text; } }
+          return bd < 0.45 ? best : '';
+        });
+      }
+      const plain = text.split('\n').map(s => s.trim()).filter(Boolean);
+      return native.map((_, i) => plain[i] || '');
+    },
+    reparse() {
+      this.parsed = this.parseLrc(this.form.lrc, this.form.offset_ms);
+      this.romajiLines = this.alignRomaji(this.parsed, this.form.romaji, this.form.offset_ms);
+    },
     fitCanvas(canvas) {
       const stage = this.$refs.stage;
       if (!stage || !canvas) return;
       const w = stage.clientWidth || stage.offsetWidth;
       if (w) canvas.style.transform = `scale(${w / this.rcfg.width})`;
     },
-    lineSpacing() {
-      // Keep the Spotify-ish spacing ratio when the lyric size is tuned.
-      const ratio = this.rcfg.scroll.line_spacing / this.rcfg.scroll.font_size;
-      return (+this.form.lyric_size || this.rcfg.scroll.font_size) * ratio;
+    hasRomaji() { return this.romajiLines.some(Boolean); },
+    geom() {
+      const S = this.rcfg.scroll, fs = +this.form.lyric_size || S.font_size;
+      const gap = this.hasRomaji() ? S.line_gap_ratio_romaji : S.line_gap_ratio;
+      return { fs, L: fs * gap, romajiSize: fs * S.romaji_size_ratio, romajiDy: fs * S.romaji_offset_ratio };
     },
     buildLines(canvas) {
       canvas.querySelectorAll('.line').forEach(e => e.remove());
-      const fs = +this.form.lyric_size || this.rcfg.scroll.font_size, cx = this.rcfg.width / 2;
-      this.lineEls = this.parsed.map(l => {
-        const d = document.createElement('div');
-        d.className = 'line'; d.textContent = l.text;
-        d.style.left = cx + 'px';
-        d.style.fontSize = fs + 'px';
-        d.style.display = 'none';
-        canvas.appendChild(d); return d;
+      const cx = this.rcfg.width / 2;
+      this.lineEls = this.parsed.map((l, idx) => {
+        const native = document.createElement('div');
+        native.className = 'line'; native.textContent = l.text;
+        native.style.left = cx + 'px'; native.style.display = 'none';
+        canvas.appendChild(native);
+        let romaji = null;
+        if (this.romajiLines[idx]) {
+          romaji = document.createElement('div');
+          romaji.className = 'line romaji'; romaji.textContent = this.romajiLines[idx];
+          romaji.style.left = cx + 'px'; romaji.style.display = 'none';
+          canvas.appendChild(romaji);
+        }
+        return { native, romaji };
       });
     },
     curTime() { const a = this.$refs.inst; return a ? (a.currentTime || 0) : 0; },
     renderFrame(tau) {
-      const S = this.rcfg.scroll, midY = this.rcfg.height / 2, L = this.lineSpacing();
-      const opA = 1 - S.alpha_active, opI = 1 - S.alpha_inactive, vr = S.visible_radius;
+      const S = this.rcfg.scroll, midY = this.rcfg.height / 2, g = this.geom();
+      const opA = 1 - S.alpha_active, opP = 1 - S.alpha_passed, opU = 1 - S.alpha_upcoming;
+      const vr = S.visible_radius;
       const sp = this.scrollPosAt(tau);
-      // Before the first lyric's time, show the opening lines but highlight none.
       const preStart = this.parsed.length > 0 && tau < this.parsed[0].t;
       for (let j = 0; j < this.lineEls.length; j++) {
-        const el = this.lineEls[j];
-        if (sp === null) { el.style.display = 'none'; continue; }
+        const { native, romaji } = this.lineEls[j];
+        if (sp === null) { native.style.display = 'none'; if (romaji) romaji.style.display = 'none'; continue; }
         const rel = j - sp;
-        if (Math.abs(rel) > vr + 0.5) { el.style.display = 'none'; continue; }
-        el.style.display = '';
-        el.style.top = (midY + rel * L) + 'px';
+        if (Math.abs(rel) > vr + 0.5) { native.style.display = 'none'; if (romaji) romaji.style.display = 'none'; continue; }
+        const base = rel < 0 ? opP : opU;              // passed (above) vs upcoming (below)
         const w = preStart ? 0 : Math.max(0, 1 - Math.abs(rel));
-        el.style.opacity = (opI + (opA - opI) * w).toFixed(3);
+        const op = (base + (opA - base) * w).toFixed(3);
+        const y = midY + rel * g.L;
+        native.style.display = ''; native.style.top = y + 'px';
+        native.style.fontSize = g.fs + 'px'; native.style.opacity = op;
+        if (romaji) {
+          romaji.style.display = ''; romaji.style.top = (y + g.romajiDy) + 'px';
+          romaji.style.fontSize = g.romajiSize + 'px'; romaji.style.opacity = op;
+        }
       }
     },
     // ONE persistent RAF loop, started in init() and running for the page's life.
@@ -415,15 +446,16 @@ function norchid() {
       else { v.pause(); }
     },
     pickBg(id) { const b=this.review.backgrounds.find(x=>x.id===id); if (b && b.available) { this.form.bg_mode = id; this.clearRealFrame(); } },
-    onLrcChange() { this.parsed = this.parseLrc(this.form.lrc, this.form.offset_ms); this.clearRealFrame(); this._dirty = true; },
-    onOffsetChange() { this.parsed = this.parseLrc(this.form.lrc, this.form.offset_ms); this.clearRealFrame(); },
+    onLrcChange() { this.reparse(); this.clearRealFrame(); this._dirty = true; },
+    onRomajiChange() { this.reparse(); this.clearRealFrame(); this._dirty = true; },
+    onOffsetChange() { this.reparse(); this.clearRealFrame(); },
     onLyricSize() { this._dirty = true; this.clearRealFrame(); },   // rebuild lines at new size
     nudge(d) { this.form.offset_ms = (+this.form.offset_ms||0) + d; this.onOffsetChange(); },
 
     async refreshRealFrame() {
       try {
         const r = await fetch(`/api/jobs/${this.jobId}/preview-frame`, { method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ lrc: this.form.lrc, offset_ms: this.form.offset_ms, t: this.curTime(), bg_mode: this.form.bg_mode, lyric_size: this.form.lyric_size }) });
+          body: JSON.stringify({ lrc: this.form.lrc, romaji: this.form.romaji, offset_ms: this.form.offset_ms, t: this.curTime(), bg_mode: this.form.bg_mode, lyric_size: this.form.lyric_size }) });
         if (!r.ok) return;
         if (this.realFrame) URL.revokeObjectURL(this.realFrame);
         this.realFrame = URL.createObjectURL(await r.blob());
@@ -449,7 +481,7 @@ function norchid() {
     async submitReview() {
       const a = this.$refs.inst, v = this.$refs.voc; if (a) a.pause(); if (v) v.pause(); this.playing = false;
       await fetch(`/api/jobs/${this.jobId}/review`, { method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ lrc: this.form.lrc, offset_ms: this.form.offset_ms,
+        body: JSON.stringify({ lrc: this.form.lrc, romaji: this.form.romaji, offset_ms: this.form.offset_ms,
           vocal_mode: this.form.vocal_mode, bg_mode: this.form.bg_mode,
           title_secondary: this.form.title_secondary, title_size: this.form.title_size,
           lyric_size: this.form.lyric_size }) });

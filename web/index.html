@@ -58,8 +58,8 @@
     </div>
   </template>
 
-  <!-- ============ REVIEW ============ -->
-  <template x-if="screen === 'review'">
+  <!-- ============ REVIEW (x-show, not x-if, so preview refs stay stable) ============ -->
+  <div x-show="screen === 'review'">
     <div>
       <!-- live preview -->
       <div class="card">
@@ -152,6 +152,10 @@
                placeholder="e.g. 東京フラッシュ (auto-filled from iTunes when available)" />
         <div class="hint" x-show="review.title_secondary">Suggested: <span x-text="review.title_secondary"></span></div>
         <div class="spacer"></div>
+        <label>Title size — <span x-text="form.title_size"></span> px</label>
+        <input type="range" min="48" max="170" step="2" x-model.number="form.title_size"
+               @input.debounce.250ms="refreshThumb()" style="width:100%;accent-color:var(--accent)" />
+        <div class="spacer"></div>
         <img class="thumb-preview" :src="thumbSrc" alt="thumbnail preview" />
       </div>
 
@@ -164,7 +168,7 @@
              @loadedmetadata="onAudioReady()" @ended="onEnded()"></audio>
       <audio x-ref="voc" :src="review.vocal_url || ''" preload="auto"></audio>
     </div>
-  </template>
+  </div>
 
   <!-- ============ DONE ============ -->
   <template x-if="screen === 'done'">
@@ -200,7 +204,7 @@ function norchid() {
   return {
     cfg: { models: [], default: 'roformer' },
     rcfg: { width: 1920, height: 1080, scroll: { font_size: 60, line_spacing: 104, visible_radius: 6, transition_ms: 450, alpha_active: 0, alpha_inactive: 0.55 } },
-    form: { url: '', sep_model: 'roformer', lrc: '', offset_ms: 0, vocal_mode: 'instrumental', bg_mode: 'color', title_secondary: '' },
+    form: { url: '', sep_model: 'roformer', lrc: '', offset_ms: 0, vocal_mode: 'instrumental', bg_mode: 'color', title_secondary: '', title_size: 110 },
     jobId: null,
     job: { status: null, stage: '', progress: 0, logs: [], outputs: {}, meta: {} },
     review: { meta: {}, candidates: [], bg_color: [38,48,66], has_synced: false, backgrounds: [], thumbnail_url: null, instrumental_url: null, vocal_url: null, duration: 0, title_secondary: '' },
@@ -269,7 +273,9 @@ function norchid() {
       this.form.title_secondary = this.review.title_secondary || '';
       this.thumbSrc = this.review.thumbnail_url + '?_=' + Date.now();
       this.reviewLoaded = true;
-      this.$nextTick(() => this.setupPreview());
+      this.parsed = this.parseLrc(this.form.lrc, this.form.offset_ms);
+      this._dirty = true;
+      this.$nextTick(() => this.startLoop());
     },
 
     // ---------- preview engine (mirrors pipeline/ass_render.py) ----------
@@ -295,7 +301,8 @@ function norchid() {
     },
     scrollPosAt(tau) {
       const L = this.parsed, n = L.length;
-      if (!n || tau < L[0].t) return null;
+      if (!n) return null;
+      if (tau < L[0].t) return 0;   // show the opening lines before playback starts
       let i = 0; for (let k=0;k<n;k++){ if (L[k].t<=tau) i=k; else break; }
       if (i+1 >= n) return i;
       const t1 = L[i+1].t, tw = Math.min(this.rcfg.scroll.transition_ms/1000, t1 - L[i].t);
@@ -303,25 +310,23 @@ function norchid() {
       if (tau < moveStart) return i;
       return i + Math.min(1, Math.max(0, (tau - moveStart) / Math.max(1e-3, t1 - moveStart)));
     },
-    fitCanvas() {
-      const stage = this.$refs.stage, canvas = this.$refs.canvas;
+    fitCanvas(canvas) {
+      const stage = this.$refs.stage;
       if (!stage || !canvas) return;
-      canvas.style.transform = `scale(${stage.clientWidth / this.rcfg.width})`;
+      const w = stage.clientWidth || stage.offsetWidth;
+      if (w) canvas.style.transform = `scale(${w / this.rcfg.width})`;
     },
-    buildLines() {
-      const canvas = this.$refs.canvas; if (!canvas) return;
+    buildLines(canvas) {
       canvas.querySelectorAll('.line').forEach(e => e.remove());
-      const fs = this.rcfg.scroll.font_size;
+      const fs = this.rcfg.scroll.font_size, cx = this.rcfg.width / 2;
       this.lineEls = this.parsed.map(l => {
         const d = document.createElement('div');
         d.className = 'line'; d.textContent = l.text;
-        d.style.left = (this.rcfg.width / 2) + 'px';
+        d.style.left = cx + 'px';
         d.style.fontSize = fs + 'px';
         d.style.display = 'none';
         canvas.appendChild(d); return d;
       });
-      this.fitCanvas();
-      this.renderFrame(this.curTime());
     },
     curTime() { const a = this.$refs.inst; return a ? (a.currentTime || 0) : 0; },
     renderFrame(tau) {
@@ -339,34 +344,36 @@ function norchid() {
         el.style.opacity = (opI + (opA - opI) * w).toFixed(3);
       }
     },
-    setupPreview() {
-      this.parsed = this.parseLrc(this.form.lrc, this.form.offset_ms);
-      this.buildLines();
-      const a = this.$refs.inst;
-      if (a && a.readyState >= 1) this.pvDuration = a.duration || this.review.duration || 0;
-      this.startLoop();
-    },
+    // One self-rescheduling RAF loop. Reads refs fresh every frame, rebuilds the
+    // line DOM when marked dirty, and never dies (errors are swallowed). This is
+    // robust to Alpine mount timing — the review screen uses x-show so the
+    // canvas/audio/scrubber refs are always in the DOM.
     startLoop() {
       if (this._looping) return;
       this._looping = true;
       const tick = () => {
-        if (this.screen !== 'review') { this._looping = false; this._raf = null; return; }
+        this._raf = requestAnimationFrame(tick);          // reschedule FIRST
+        if (this.screen !== 'review') { this._looping = false; cancelAnimationFrame(this._raf); this._raf = null; return; }
         try {
-          const t = this.curTime();
-          if (this.$refs.scrub && document.activeElement !== this.$refs.scrub)
-            this.$refs.scrub.value = t;
-          if (this.$refs.timeLabel)
-            this.$refs.timeLabel.textContent = this.fmtT(t) + ' / ' + this.fmtT(this.pvDuration);
+          const canvas = this.$refs.canvas;
+          if (!canvas) return;
+          if (this._dirty) { this.buildLines(canvas); this._dirty = false; }
+          this.fitCanvas(canvas);
+          const a = this.$refs.inst;
+          if (a && a.duration) this.pvDuration = a.duration;
+          const t = a ? (a.currentTime || 0) : 0;
+          const scrub = this.$refs.scrub, lbl = this.$refs.timeLabel;
+          if (scrub && document.activeElement !== scrub) { scrub.max = this.pvDuration || 1; scrub.value = t; }
+          if (lbl) lbl.textContent = this.fmtT(t) + ' / ' + this.fmtT(this.pvDuration);
           if (!this.realFrame) this.renderFrame(t);
         } catch (e) { /* never let the loop die */ }
-        this._raf = requestAnimationFrame(tick);
       };
       this._raf = requestAnimationFrame(tick);
     },
     onAudioReady() {
       const a = this.$refs.inst;
       this.pvDuration = (a && a.duration) || this.review.duration || 0;
-      this.fitCanvas();
+      this.startLoop();   // backup trigger once the audio (and its DOM) is ready
     },
     onEnded() { this.playing = false; const v=this.$refs.voc; if (v) v.pause(); },
 
@@ -394,8 +401,8 @@ function norchid() {
       else { v.pause(); }
     },
     pickBg(id) { const b=this.review.backgrounds.find(x=>x.id===id); if (b && b.available) { this.form.bg_mode = id; this.clearRealFrame(); } },
-    onLrcChange() { this.parsed = this.parseLrc(this.form.lrc, this.form.offset_ms); this.clearRealFrame(); this.buildLines(); },
-    onOffsetChange() { this.parsed = this.parseLrc(this.form.lrc, this.form.offset_ms); this.clearRealFrame(); this.renderFrame(this.curTime()); },
+    onLrcChange() { this.parsed = this.parseLrc(this.form.lrc, this.form.offset_ms); this.clearRealFrame(); this._dirty = true; },
+    onOffsetChange() { this.parsed = this.parseLrc(this.form.lrc, this.form.offset_ms); this.clearRealFrame(); },
     nudge(d) { this.form.offset_ms = (+this.form.offset_ms||0) + d; this.onOffsetChange(); },
 
     async refreshRealFrame() {
@@ -412,7 +419,7 @@ function norchid() {
     async refreshThumb() {
       try {
         const r = await fetch(`/api/jobs/${this.jobId}/thumbnail-preview`, { method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ title_secondary: this.form.title_secondary }) });
+          body: JSON.stringify({ title_secondary: this.form.title_secondary, title_size: this.form.title_size }) });
         if (!r.ok) return;
         if (this._thumbBlob) URL.revokeObjectURL(this._thumbBlob);
         this._thumbBlob = URL.createObjectURL(await r.blob());
@@ -428,7 +435,8 @@ function norchid() {
       const a = this.$refs.inst, v = this.$refs.voc; if (a) a.pause(); if (v) v.pause(); this.playing = false;
       await fetch(`/api/jobs/${this.jobId}/review`, { method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ lrc: this.form.lrc, offset_ms: this.form.offset_ms,
-          vocal_mode: this.form.vocal_mode, bg_mode: this.form.bg_mode, title_secondary: this.form.title_secondary }) });
+          vocal_mode: this.form.vocal_mode, bg_mode: this.form.bg_mode,
+          title_secondary: this.form.title_secondary, title_size: this.form.title_size }) });
       this.job.status = 'running'; this.job.stage = 'rendering';
       this.startPolling();
     },

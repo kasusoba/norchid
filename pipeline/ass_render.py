@@ -18,7 +18,9 @@ from dataclasses import dataclass
 
 from app import config
 
-LYRIC_FONT = "Noto Sans CJK JP"  # full CJK: Latin/romaji + kana/kanji + Hangul
+# Black weight (heavier than Bold) — punchier, not skinny at lyric size. The
+# unique family name lets libass pick this exact face from fontsdir.
+LYRIC_FONT = "Noto Sans CJK JP Black"  # full CJK: Latin/romaji + kana/kanji + Hangul
 
 # LRC timestamp:  [mm:ss.xx] or [mm:ss.xxx] or [mm:ss]
 _LRC_TIME = re.compile(r"\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]")
@@ -108,7 +110,7 @@ YCbCr Matrix: TV.709
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Lyric,{font},{font_size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H50000000,-1,0,0,0,100,100,0,0,1,0,2,5,40,40,0,1
+Style: Lyric,{font},{font_size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H50000000,0,0,0,0,100,100,0,0,1,0,2,5,40,40,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

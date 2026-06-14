@@ -99,6 +99,7 @@ def finalize(ctx: dict, work_dir: Path, out_dir: Path, *,
              vocal_mode: str = "instrumental",
              bg_mode: str = config.DEFAULT_BG_MODE,
              title_secondary: str | None = None,
+             title_size: int = config.THUMB_TITLE_SIZE,
              log: Log = _noop, stage: Stage = _noop, progress: Progress = _noop) -> dict:
     """Render the video + thumbnail from the (possibly user-edited) review state."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -135,7 +136,8 @@ def finalize(ctx: dict, work_dir: Path, out_dir: Path, *,
     sec = title_secondary if title_secondary is not None \
         else ctx["meta"].get("title_secondary")
     thumbnail.make_thumbnail(ctx["meta"], work_dir, ctx["bg_color"], out_thumb,
-                             yt_thumb=ctx.get("yt_thumb"), secondary=sec)
+                             yt_thumb=ctx.get("yt_thumb"), secondary=sec,
+                             title_size=title_size)
     progress(0.95)
 
     outputs = _collect(out_dir, ctx["meta"], out_video, out_thumb, ctx["instrumental"])

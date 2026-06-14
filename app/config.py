@@ -12,7 +12,7 @@ WORKSPACE = ROOT / "workspace"
 OUTPUTS = ROOT / "outputs"
 
 # Font family names (must match the vendored files; see assets/fonts/).
-LYRIC_FONT = "Noto Sans CJK JP"   # full CJK: Latin/romaji + kana/kanji + Hangul
+LYRIC_FONT = "Noto Sans CJK JP Black"   # heavy CJK face for lyrics (not skinny)
 TITLE_FONT = "Montserrat ExtraBold"
 TITLE_FONT_CJK = "Noto Sans CJK JP"  # thumbnail title fallback for CJK text
 
@@ -26,6 +26,7 @@ HEIGHT = 1080
 FPS = 60
 THUMB_W = 1280
 THUMB_H = 720
+THUMB_TITLE_SIZE = 110   # default cinematic title start size (px), tunable in review
 
 # Scrolling-lyrics model — shared by the ASS renderer AND the browser preview
 # (served via /api/render-config) so they look the same. Spotify-style: lines

@@ -31,6 +31,7 @@ class ReviewSubmit(BaseModel):
     vocal_mode: str = "instrumental"
     bg_mode: str = config.DEFAULT_BG_MODE
     title_secondary: str = ""
+    title_size: int = config.THUMB_TITLE_SIZE
 
 
 class PreviewFrame(BaseModel):
@@ -104,7 +105,7 @@ def submit_review(jid: str, body: ReviewSubmit):
         raise HTTPException(409, "job has no prepared context yet")
     manager.submit_review(job, lrc=body.lrc, offset_ms=body.offset_ms,
                           vocal_mode=body.vocal_mode, bg_mode=body.bg_mode,
-                          title_secondary=body.title_secondary)
+                          title_secondary=body.title_secondary, title_size=body.title_size)
     return {"ok": True, "job_id": job.id}
 
 
@@ -120,7 +121,8 @@ def thumbnail_preview(jid: str, body: dict):
     try:
         thumbnail.make_thumbnail(job.meta, work_dir, job.bg_color, out,
                                  yt_thumb=job.ctx.get("yt_thumb"),
-                                 secondary=(body or {}).get("title_secondary", ""))
+                                 secondary=(body or {}).get("title_secondary", ""),
+                                 title_size=int((body or {}).get("title_size") or config.THUMB_TITLE_SIZE))
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, f"thumbnail render failed: {e}")
     return FileResponse(out, headers={"Cache-Control": "no-store"})

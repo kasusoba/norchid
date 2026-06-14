@@ -152,7 +152,7 @@ def _bracket_jp(text: str) -> str:
 
 
 def make_cinematic(title: str, secondary: str | None, yt_thumb: Path | None,
-                   bg_color, out: Path) -> Path:
+                   bg_color, out: Path, title_size: int = config.THUMB_TITLE_SIZE) -> Path:
     canvas = _yt_canvas(yt_thumb) if yt_thumb else \
         Image.new("RGBA", (W, H), tuple(bg_color) + (255,))
     pill_rgb = _pill_color(yt_thumb, bg_color)
@@ -160,8 +160,10 @@ def make_cinematic(title: str, secondary: str | None, yt_thumb: Path | None,
     secondary = (secondary or "").strip()
     has_sec = bool(secondary)
 
-    # Fit main title (and secondary) to width.
-    main_font, main_lines, main_lh = _fit(title, int(W * 0.86), int(H * 0.40), 118)
+    # Fit main title (and secondary) to width, starting from the chosen size.
+    title_size = max(40, min(190, int(title_size or config.THUMB_TITLE_SIZE)))
+    main_font, main_lines, main_lh = _fit(title, int(W * 0.86), int(H * 0.46),
+                                          title_size, min_size=40)
     sec_font = sec_lines = None
     sec_h = 0
     if has_sec:
@@ -186,9 +188,10 @@ def make_cinematic(title: str, secondary: str | None, yt_thumb: Path | None,
 
 
 def make_thumbnail(meta: dict, work_dir: Path, bg_color, out: Path,
-                   yt_thumb: Path | None = None, secondary: str | None = None) -> Path:
+                   yt_thumb: Path | None = None, secondary: str | None = None,
+                   title_size: int = config.THUMB_TITLE_SIZE) -> Path:
     title = meta.get("title") or "Untitled"
     if yt_thumb is None:
         yt_thumb = download_yt_thumb(meta.get("yt_thumbnail_url"), work_dir)
     sec = secondary if secondary is not None else meta.get("title_secondary")
-    return make_cinematic(title, sec, yt_thumb, bg_color, out)
+    return make_cinematic(title, sec, yt_thumb, bg_color, out, title_size=title_size)

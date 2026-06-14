@@ -32,6 +32,7 @@ class Job:
     vocal_mode: str = "instrumental"
     bg_mode: str = config.DEFAULT_BG_MODE
     title_secondary: str = ""
+    title_size: int = config.THUMB_TITLE_SIZE
     outputs: dict = field(default_factory=dict)
     logs: list = field(default_factory=list)
     error: str | None = None
@@ -109,6 +110,7 @@ class JobManager:
             "bg_mode": job.bg_mode,
             "backgrounds": backgrounds,
             "title_secondary": job.meta.get("title_secondary", ""),
+            "title_size": job.title_size,
             "thumbnail_url": f"{a}/thumb_cinematic.png",
             "instrumental_url": f"{a}/instrumental.wav",
             "vocal_url": f"{a}/vocals.wav" if ctx.get("vocal") else None,
@@ -132,13 +134,14 @@ class JobManager:
         return None
 
     def submit_review(self, job: Job, *, lrc, offset_ms, vocal_mode, bg_mode,
-                      title_secondary) -> None:
+                      title_secondary, title_size) -> None:
         job.lrc = lrc
         job.offset_ms = int(offset_ms or 0)
         job.vocal_mode = vocal_mode or "instrumental"
         job.bg_mode = bg_mode if bg_mode in config.BG_MODES else config.DEFAULT_BG_MODE
         job.title_secondary = (title_secondary or "").strip()
         job.meta["title_secondary"] = job.title_secondary
+        job.title_size = int(title_size or config.THUMB_TITLE_SIZE)
         job.status = "running"
         job.stage = "rendering"
         self._queue.put(("finalize", job.id))
@@ -184,7 +187,7 @@ class JobManager:
                         job.ctx, work_dir, out_dir,
                         lrc=job.lrc, offset_ms=job.offset_ms,
                         vocal_mode=job.vocal_mode, bg_mode=job.bg_mode,
-                        title_secondary=job.title_secondary,
+                        title_secondary=job.title_secondary, title_size=job.title_size,
                         log=log, stage=stage, progress=progress)
                     job.outputs = outputs
                     job.status = "done"

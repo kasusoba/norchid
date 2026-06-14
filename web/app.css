@@ -90,11 +90,11 @@ video { width: 100%; border-radius: 10px; border: 1px solid var(--line); backgro
 .downloads { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
 .downloads a { text-decoration: none; }
 
-/* live preview */
+/* live preview — same heavy face the libass render uses (not skinny) */
 @font-face {
-  font-family: "Noto Sans CJK JP";
-  src: url("/fonts/NotoSansCJKjp-Bold.otf") format("opentype");
-  font-weight: 700; font-display: swap;
+  font-family: "Noto Sans CJK JP Black";
+  src: url("/fonts/NotoSansCJKjp-Black.otf") format("opentype");
+  font-weight: 900; font-display: swap;
 }
 .preview {
   position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 10px;
@@ -110,7 +110,7 @@ video { width: 100%; border-radius: 10px; border: 1px solid var(--line); backgro
 .preview .line {
   position: absolute; white-space: nowrap;
   transform: translate(-50%, -50%);
-  font-family: "Noto Sans CJK JP", system-ui, sans-serif; font-weight: 700;
+  font-family: "Noto Sans CJK JP Black", system-ui, sans-serif; font-weight: 900;
   color: #fff; text-shadow: 2px 2px 4px rgba(0,0,0,.5); pointer-events: none;
   will-change: transform, opacity;
 }

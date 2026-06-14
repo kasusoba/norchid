@@ -80,10 +80,26 @@ def _clean_instrumentals(lines: list[LyricLine]) -> list[LyricLine]:
     return out
 
 
+def _has_cjk(text: str) -> bool:
+    for ch in text or "":
+        o = ord(ch)
+        if (0x3040 <= o <= 0x30FF or 0x3400 <= o <= 0x9FFF
+                or 0xAC00 <= o <= 0xD7A3 or 0xF900 <= o <= 0xFAFF):
+            return True
+    return False
+
+
+def _needs_romaji(ln: LyricLine) -> bool:
+    """A line gets a romaji sub only if it's a real lyric AND contains CJK — lines
+    already wholly in Latin (e.g. 'Ah') don't need a romanization underneath."""
+    return (not ln.instrumental) and _has_cjk(ln.text)
+
+
 def align_romaji(native: list[LyricLine], romaji_text: str | None,
                  offset_ms: int = 0) -> list[str]:
     """Build a romaji string per native line. Accepts a romaji LRC (matched by
-    nearest timestamp) or plain lines in order (matched by index)."""
+    nearest timestamp) or plain lines in order (matched by index). Lines that are
+    instrumental or already wholly Latin get no romaji (and consume none)."""
     n = len(native)
     if not romaji_text or not romaji_text.strip():
         return [""] * n
@@ -91,16 +107,16 @@ def align_romaji(native: list[LyricLine], romaji_text: str | None,
     if timed:
         out = []
         for nl in native:
-            if nl.instrumental:
+            if not _needs_romaji(nl):
                 out.append(""); continue
             best = min(timed, key=lambda r: abs(r.t - nl.t))
             out.append(best.text if abs(best.t - nl.t) < 0.45 else "")
         return out
-    # Plain lines, matched by order — instrumental placeholders consume no romaji.
+    # Plain lines, matched by order — only CJK lines take (and consume) a romaji.
     plain = [ln.strip() for ln in romaji_text.splitlines() if ln.strip()]
     out, idx = [], 0
     for nl in native:
-        if nl.instrumental:
+        if not _needs_romaji(nl):
             out.append("")
         else:
             out.append(plain[idx] if idx < len(plain) else "")

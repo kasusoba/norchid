@@ -46,7 +46,10 @@
                 <div x-text="`${j.artist ? j.artist + ' — ' : ''}${j.title}`"></div>
                 <small x-text="j.id"></small>
               </div>
-              <span class="badge" :class="j.status!=='done' && 'no'" x-text="j.status==='done' ? 'done' : (j.status==='awaiting_review' ? 'ready' : j.status)"></span>
+              <div style="display:flex;align-items:center;gap:10px;flex:none">
+                <span class="badge" :class="j.status!=='done' && 'no'" x-text="j.status==='done' ? 'done' : (j.status==='awaiting_review' ? 'ready' : j.status)"></span>
+                <button class="del-btn" @click.stop="deleteJob(j)" title="delete">✕</button>
+              </div>
             </div>
           </template>
         </div>
@@ -348,6 +351,11 @@ function norchid() {
     resume(jid) {
       this.jobId = jid; this.reviewLoaded = false; this.forceReview = false;
       this.startPolling();
+    },
+    async deleteJob(j) {
+      if (!confirm(`Delete "${j.title}" and its files? This can't be undone.`)) return;
+      try { await fetch(`/api/jobs/${j.id}`, { method: 'DELETE' }); } catch (e) {}
+      this.jobList = this.jobList.filter(x => x.id !== j.id);
     },
     reopenReview() { this.forceReview = true; this.reviewLoaded = false; this.loadReview(); },
     fmtT(s) { s = Math.max(0, Math.round(s||0)); return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`; },

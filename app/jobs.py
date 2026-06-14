@@ -188,6 +188,18 @@ class JobManager:
     def get(self, jid: str) -> Job | None:
         return self.jobs.get(jid)
 
+    def delete(self, jid: str) -> bool:
+        """Forget a job and remove its workspace + outputs from disk."""
+        import shutil
+        existed = self.jobs.pop(jid, None) is not None
+        wd = config.WORKSPACE / jid
+        od = config.OUTPUTS / jid
+        if "/" in jid or "\\" in jid or ".." in jid:   # guard path traversal
+            return False
+        shutil.rmtree(wd, ignore_errors=True)
+        shutil.rmtree(od, ignore_errors=True)
+        return existed or wd.exists() or od.exists()
+
     def review_payload(self, job: Job) -> dict:
         """Data the review screen needs (incl. preview asset URLs)."""
         ctx = job.ctx or {}

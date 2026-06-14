@@ -104,6 +104,13 @@ def get_job(jid: str):
     return job.public()
 
 
+@app.delete("/api/jobs/{jid}")
+def delete_job(jid: str):
+    """Delete a job and its files (workspace + outputs)."""
+    manager.delete(jid)
+    return {"ok": True}
+
+
 @app.get("/api/jobs/{jid}/review")
 def get_review(jid: str):
     job = manager.get(jid)

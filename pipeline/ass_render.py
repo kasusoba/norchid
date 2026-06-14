@@ -22,15 +22,27 @@ LYRIC_FONT = "Noto Sans CJK JP Black"  # full CJK: Latin/romaji + kana/kanji + H
 
 _LRC_TIME = re.compile(r"\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]")
 
+# Placeholder shown for an instrumental break (an empty timed LRC line). The
+# highlight rests here instead of staying on the last sung line.
+INSTRUMENTAL_GLYPH = "♪"
+# Only show the placeholder when the instrumental gap is at least this long.
+INSTRUMENTAL_MIN_GAP = 2.5
+
 
 @dataclass
 class LyricLine:
     t: float
     text: str
+    instrumental: bool = False
 
 
 def parse_lrc(lrc: str, offset_ms: int = 0) -> list[LyricLine]:
-    """Parse LRC text into time-sorted lyric lines, applying a global offset."""
+    """Parse LRC text into time-sorted lyric lines, applying a global offset.
+
+    Empty timed lines (LRCLIB's instrumental markers) are kept as instrumental
+    placeholders rather than dropped, so the highlight rests on a ♪ during long
+    breaks. Trivial gaps and consecutive markers are collapsed.
+    """
     out: list[LyricLine] = []
     offset = offset_ms / 1000.0
     for raw in lrc.splitlines():
@@ -38,15 +50,33 @@ def parse_lrc(lrc: str, offset_ms: int = 0) -> list[LyricLine]:
         if not stamps:
             continue
         text = _LRC_TIME.sub("", raw).strip()
-        if not text:
-            continue
         for m in stamps:
             mm, ss, frac = m.group(1), m.group(2), m.group(3)
             t = int(mm) * 60 + int(ss)
             if frac:
                 t += int(frac.ljust(3, "0")) / 1000.0
-            out.append(LyricLine(t=max(0.0, t + offset), text=text))
+            out.append(LyricLine(t=max(0.0, t + offset), text=text,
+                                 instrumental=not text))
     out.sort(key=lambda x: x.t)
+    return _clean_instrumentals(out)
+
+
+def _clean_instrumentals(lines: list[LyricLine]) -> list[LyricLine]:
+    """Drop instrumental markers with a trivial gap, and collapse consecutive
+    ones. A leading instrumental marker is dropped (the intro already shows the
+    upcoming lines)."""
+    out: list[LyricLine] = []
+    n = len(lines)
+    for k, ln in enumerate(lines):
+        if ln.instrumental:
+            if not out:                       # leading marker -> intro handles it
+                continue
+            if out[-1].instrumental:          # collapse consecutive
+                continue
+            nxt = lines[k + 1].t if k + 1 < n else None
+            if nxt is not None and nxt - ln.t < INSTRUMENTAL_MIN_GAP:
+                continue                      # gap too short to bother
+        out.append(ln)
     return out
 
 
@@ -57,15 +87,25 @@ def align_romaji(native: list[LyricLine], romaji_text: str | None,
     n = len(native)
     if not romaji_text or not romaji_text.strip():
         return [""] * n
-    timed = parse_lrc(romaji_text, offset_ms=offset_ms)
+    timed = [r for r in parse_lrc(romaji_text, offset_ms=offset_ms) if not r.instrumental]
     if timed:
         out = []
         for nl in native:
+            if nl.instrumental:
+                out.append(""); continue
             best = min(timed, key=lambda r: abs(r.t - nl.t))
             out.append(best.text if abs(best.t - nl.t) < 0.45 else "")
         return out
+    # Plain lines, matched by order — instrumental placeholders consume no romaji.
     plain = [ln.strip() for ln in romaji_text.splitlines() if ln.strip()]
-    return [plain[i] if i < len(plain) else "" for i in range(n)]
+    out, idx = [], 0
+    for nl in native:
+        if nl.instrumental:
+            out.append("")
+        else:
+            out.append(plain[idx] if idx < len(plain) else "")
+            idx += 1
+    return out
 
 
 def _ass_time(seconds: float) -> str:
@@ -135,6 +175,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     n = len(lines)
     events: list[str] = []
 
+    def disp(ln):
+        return INSTRUMENTAL_GLYPH if ln.instrumental else ln.text
+
     def emit(text, style, y0, y1, move_start, d_ms, alpha_frag, start_s, end_s):
         if not text:
             return
@@ -166,7 +209,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 break
             y = mid + j * L
             frag = f"\\alpha{a_upcoming}"
-            emit(lines[j].text, "Lyric", y, y, 0, 1, frag, s0, e0)
+            emit(disp(lines[j]), "Lyric", y, y, 0, 1, frag, s0, e0)
             emit(romaji[j], "Romaji", y + romaji_dy, y + romaji_dy, 0, 1, frag, s0, e0)
 
     for i in range(n):
@@ -186,7 +229,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             y0 = mid + (j - i) * L
             y1 = y0 if last else y0 - L
             frag = alpha_frag(j, i, last, move_start, d_ms)
-            emit(lines[j].text, "Lyric", y0, y1, move_start, d_ms, frag, s0, e0)
+            emit(disp(lines[j]), "Lyric", y0, y1, move_start, d_ms, frag, s0, e0)
             emit(romaji[j], "Romaji", y0 + romaji_dy, y1 + romaji_dy,
                  move_start, d_ms, frag, s0, e0)
 

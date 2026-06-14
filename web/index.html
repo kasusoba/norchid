@@ -313,14 +313,27 @@ function norchid() {
         while ((m = re.exec(raw)) !== null) stamps.push(m);
         if (!stamps.length) continue;
         const body = raw.replace(re, '').trim();
-        if (!body) continue;
         for (const s of stamps) {
           let t = (+s[1])*60 + (+s[2]);
           if (s[3]) t += (+s[3].padEnd(3,'0'))/1000;
-          out.push({ t: Math.max(0, t + off), text: body });
+          out.push({ t: Math.max(0, t + off), text: body, instrumental: !body });
         }
       }
       out.sort((a,b) => a.t - b.t);
+      return this.cleanInstrumentals(out);
+    },
+    cleanInstrumentals(lines) {
+      const out = [], n = lines.length;
+      for (let k = 0; k < n; k++) {
+        const ln = lines[k];
+        if (ln.instrumental) {
+          if (!out.length) continue;                       // leading marker
+          if (out[out.length - 1].instrumental) continue;  // collapse consecutive
+          const nxt = k + 1 < n ? lines[k + 1].t : null;
+          if (nxt !== null && nxt - ln.t < 2.5) continue;   // gap too short
+        }
+        out.push(ln);
+      }
       return out;
     },
     scrollPosAt(tau) {
@@ -337,16 +350,18 @@ function norchid() {
     alignRomaji(native, text, offsetMs) {
       const n = native.length;
       if (!text || !text.trim()) return new Array(n).fill('');
-      const timed = this.parseLrc(text, offsetMs);
+      const timed = this.parseLrc(text, offsetMs).filter(r => !r.instrumental);
       if (timed.length) {
         return native.map(nl => {
+          if (nl.instrumental) return '';
           let best = '', bd = Infinity;
           for (const r of timed) { const d = Math.abs(r.t - nl.t); if (d < bd) { bd = d; best = r.text; } }
           return bd < 0.45 ? best : '';
         });
       }
       const plain = text.split('\n').map(s => s.trim()).filter(Boolean);
-      return native.map((_, i) => plain[i] || '');
+      let idx = 0;
+      return native.map(nl => nl.instrumental ? '' : (plain[idx++] || ''));
     },
     reparse() {
       this.parsed = this.parseLrc(this.form.lrc, this.form.offset_ms);
@@ -369,7 +384,7 @@ function norchid() {
       const cx = this.rcfg.width / 2;
       this.lineEls = this.parsed.map((l, idx) => {
         const native = document.createElement('div');
-        native.className = 'line'; native.textContent = l.text;
+        native.className = 'line'; native.textContent = l.instrumental ? '♪' : l.text;
         native.style.left = cx + 'px'; native.style.display = 'none';
         canvas.appendChild(native);
         let romaji = null;

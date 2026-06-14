@@ -1,11 +1,13 @@
-"""LRC -> ASS subtitle (Spotify-style windowed scrolling highlight).
+"""LRC -> ASS subtitle: smooth Spotify-style scrolling lyrics.
 
-The renderer is norchid's highest-risk piece (Phase 0). It converts line-level
-LRC timestamps into an ASS file where, for each lyric line, we emit one Dialogue
-event holding a *window* of nearby lines centered on screen (\\an5). The active
-line is full-opacity white; neighbors are dimmed. As the active line advances the
-window shifts, producing the scroll. libass + a CJK font do the rest.
+Each lyric line is its own positioned event. Within an inter-line interval the
+line **holds** centered, then over the last TRANSITION_MS it **scrolls up one
+slot** (via \\move) while the highlight hands off to the next line (\\t on
+\\alpha). Because consecutive events share identical positions at their shared
+boundary, the motion is continuous — a true scroll, not a per-line redraw.
 
+The scroll geometry (font size, line spacing, transition, opacity) lives in
+``app.config.SCROLL`` and is shared with the browser preview so they match.
 See docs/ARCHITECTURE.md §4 and docs/DECISIONS.md D8/D10/D14.
 """
 
@@ -14,14 +16,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-# --- Style constants (docs/BRANDING.md, DECISIONS D10/D11/D14) -------------
+from app import config
+
 LYRIC_FONT = "Noto Sans CJK JP"  # full CJK: Latin/romaji + kana/kanji + Hangul
-FONT_SIZE = 64
-WINDOW_RADIUS = 2  # lines shown above/below the active line (5-line window)
-# ASS \alpha: &H00& = opaque, &HFF& = transparent. Opacity 45% -> ~&H8C&.
-ALPHA_ACTIVE = "&H00&"
-ALPHA_INACTIVE = "&H8C&"
-FADE_MS = 120  # \fad in/out per event
 
 # LRC timestamp:  [mm:ss.xx] or [mm:ss.xxx] or [mm:ss]
 _LRC_TIME = re.compile(r"\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]")
@@ -75,19 +72,31 @@ def _escape(text: str) -> str:
     return text.replace("\\", "\\​").replace("{", "(").replace("}", ")")
 
 
+def _alpha_tag(opacity_transparent: float) -> str:
+    """ASS \\alpha hex from a 0..1 transparency (0 = opaque)."""
+    return f"&H{max(0, min(255, round(opacity_transparent * 255))):02X}&"
+
+
 def build_ass(
     lines: list[LyricLine],
     duration: float,
-    width: int = 1920,
-    height: int = 1080,
+    width: int = config.WIDTH,
+    height: int = config.HEIGHT,
     font: str = LYRIC_FONT,
-    font_size: int = FONT_SIZE,
+    scroll: dict | None = None,
 ) -> str:
-    """Build a full ASS document with the windowed-highlight scroll effect.
+    """Build a full ASS document with the smooth scrolling-highlight effect."""
+    s = scroll or config.SCROLL
+    font_size = s["font_size"]
+    L = s["line_spacing"]
+    vr = s["visible_radius"]
+    tw_ms = s["transition_ms"]
+    a_active = _alpha_tag(s["alpha_active"])
+    a_inact = _alpha_tag(s["alpha_inactive"])
 
-    `duration` is the song/instrumental length in seconds; the final lyric line
-    is held until then.
-    """
+    cx = width // 2
+    mid = height / 2
+
     header = f"""[Script Info]
 ; norchid scrolling-lyrics render
 ScriptType: v4.00+
@@ -99,38 +108,59 @@ YCbCr Matrix: TV.709
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Lyric,{font},{font_size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,0,2,5,80,80,0,1
+Style: Lyric,{font},{font_size},&H00FFFFFF,&H00FFFFFF,&H96000000,&H64000000,-1,0,0,0,100,100,0,0,1,1.4,0,5,40,40,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
-    events: list[str] = []
+
     n = len(lines)
-    for i, line in enumerate(lines):
-        start = line.t
-        end = lines[i + 1].t if i + 1 < n else duration
-        if end <= start:
-            end = start + 0.1  # guard against zero/negative-length events
-        events.append(_event(lines, i, start, end))
+    events: list[str] = []
+    for i in range(n):
+        t0 = lines[i].t
+        last = (i + 1 >= n)
+        t1 = duration if last else lines[i + 1].t
+        if t1 <= t0:
+            t1 = t0 + 0.05
+        d_ms = int(round((t1 - t0) * 1000))
+        tw = 0 if last else min(tw_ms, d_ms)
+        move_start = d_ms - tw
+
+        for j in range(i - vr, i + vr + 1):
+            if not (0 <= j < n):
+                continue
+            y0 = mid + (j - i) * L
+            y1 = y0 if last else y0 - L
+            ev = _line_event(
+                lines[j].text, j, i, last, cx, y0, y1, move_start, d_ms,
+                a_active, a_inact, _ass_time(t0), _ass_time(t1))
+            events.append(ev)
     return header + "\n".join(events) + "\n"
 
 
-def _event(lines: list[LyricLine], i: int, start: float, end: float) -> str:
-    """One Dialogue event: a centered window of lines with the active one bright."""
-    n = len(lines)
-    segments: list[str] = []
-    for slot, idx in enumerate(range(i - WINDOW_RADIUS, i + WINDOW_RADIUS + 1)):
-        text = _escape(lines[idx].text) if 0 <= idx < n else ""
-        alpha = ALPHA_ACTIVE if idx == i else ALPHA_INACTIVE
-        if slot == 0:
-            # First segment carries the line-wide tags (alignment + fade).
-            segments.append(f"{{\\an5\\fad({FADE_MS},{FADE_MS})\\alpha{alpha}}}{text}")
-        else:
-            segments.append(f"{{\\alpha{alpha}}}{text}")
-    body = "\\N".join(segments)
-    return (
-        f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Lyric,,0,0,0,,{body}"
-    )
+def _line_event(text, j, i, last, cx, y0, y1, move_start, d_ms,
+                a_active, a_inact, start_s, end_s) -> str:
+    """One Dialogue: line j during the interval starting at line i."""
+    body = _escape(text)
+    # Position: hold at y0, then scroll to y1 between move_start..d_ms.
+    if y1 == y0:
+        pos = f"\\pos({cx},{y0:.0f})"
+    else:
+        pos = f"\\move({cx},{y0:.0f},{cx},{y1:.0f},{move_start},{d_ms})"
+
+    if last:
+        alpha = a_active if j == i else a_inact
+        tags = f"{{\\an5{pos}\\alpha{alpha}}}"
+    elif j == i:        # active now -> dims as it scrolls up
+        tags = (f"{{\\an5{pos}\\alpha{a_active}"
+                f"\\t({move_start},{d_ms},\\alpha{a_inact})}}")
+    elif j == i + 1:    # next line -> brightens into the center
+        tags = (f"{{\\an5{pos}\\alpha{a_inact}"
+                f"\\t({move_start},{d_ms},\\alpha{a_active})}}")
+    else:               # neighbor -> stays dim while scrolling
+        tags = f"{{\\an5{pos}\\alpha{a_inact}}}"
+
+    return f"Dialogue: 0,{start_s},{end_s},Lyric,,0,0,0,,{tags}{body}"
 
 
 def write_ass(
@@ -138,16 +168,16 @@ def write_ass(
     out_path: str,
     duration: float,
     offset_ms: int = 0,
-    width: int = 1920,
-    height: int = 1080,
+    width: int = config.WIDTH,
+    height: int = config.HEIGHT,
     font: str = LYRIC_FONT,
-    font_size: int = FONT_SIZE,
+    scroll: dict | None = None,
 ) -> list[LyricLine]:
     """Convenience: parse LRC -> build ASS -> write file. Returns parsed lines."""
     lines = parse_lrc(lrc, offset_ms=offset_ms)
     if not lines:
         raise ValueError("No timed lyric lines parsed from LRC input.")
-    ass = build_ass(lines, duration, width, height, font, font_size)
+    ass = build_ass(lines, duration, width, height, font, scroll)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(ass)
     return lines

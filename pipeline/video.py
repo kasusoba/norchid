@@ -120,6 +120,24 @@ def _run_ffmpeg(cmd: list[str], duration: float = 0.0, progress_cb=None) -> None
         raise RuntimeError(f"ffmpeg failed:\n{tail}")
 
 
+def render_still(background: Path, ass_path: Path | None, t: float, out_path: Path,
+                 fonts_dir: Path = config.FONTS_DIR) -> Path:
+    """Render one libass frame at time ``t`` (exact-fidelity preview spot-check).
+
+    Shifts the looped background's PTS to ``t`` so the ASS clock lands there.
+    """
+    filters = [f"setpts=PTS+{max(0.0, t):.3f}/TB"]
+    if ass_path is not None:
+        filters.append(f"ass={_escape_filter_path(str(ass_path))}"
+                       f":fontsdir={_escape_filter_path(str(fonts_dir))}")
+    cmd = [
+        "ffmpeg", "-y", "-loop", "1", "-i", str(background), "-r", "60",
+        "-vf", ",".join(filters), "-frames:v", "1", "-update", "1", str(out_path),
+    ]
+    _run_ffmpeg(cmd)
+    return out_path
+
+
 def ensure_ffmpeg() -> None:
     if not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg not found on PATH (need a build with libass).")

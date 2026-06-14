@@ -31,6 +31,7 @@ class Job:
     bg_color: tuple = (38, 48, 66)
     thumbnail_layout: str = "cinematic"
     vocal_mode: str = "instrumental"
+    bg_mode: str = config.DEFAULT_BG_MODE
     outputs: dict = field(default_factory=dict)
     logs: list = field(default_factory=list)
     error: str | None = None
@@ -83,19 +84,47 @@ class JobManager:
         return self.jobs.get(jid)
 
     def review_payload(self, job: Job) -> dict:
-        """Data the review screen needs."""
+        """Data the review screen needs (incl. preview asset URLs)."""
+        ctx = job.ctx or {}
+        a = f"/api/jobs/{job.id}/asset"
+        bg_files = {"color": "background.png", "cover": "bg_cover.png",
+                    "thumbnail": "bg_thumbnail.png"}
+        available = set(ctx.get("backgrounds", {}).keys()) or {"color"}
+        backgrounds = [
+            {"id": k, "label": config.BG_MODES[k], "available": k in available,
+             "url": f"{a}/{bg_files[k]}"}
+            for k in config.BG_MODES
+        ]
         return {
             "status": job.status,
             "meta": job.meta,
+            "duration": ctx.get("duration", 0.0),
             "lrc": job.lrc,
             "offset_ms": job.offset_ms,
             "bg_color": list(job.bg_color),
-            "cover_url": (job.ctx or {}).get("cover_url"),
+            "cover_url": ctx.get("cover_url"),
             "has_synced": bool(job.lrc),
             "candidates": [lyrics.candidate_summary(c) for c in job.lrc_candidates],
             "thumbnail_layout": job.thumbnail_layout,
             "vocal_mode": job.vocal_mode,
+            "bg_mode": job.bg_mode,
+            "backgrounds": backgrounds,
+            "thumbnails": {"cinematic": f"{a}/thumb_cinematic.png",
+                           "album": f"{a}/thumb_album.png"},
+            "instrumental_url": f"{a}/instrumental.wav",
+            "vocal_url": f"{a}/vocals.wav" if ctx.get("vocal") else None,
         }
+
+    def asset_path(self, job: Job, name: str) -> Path | None:
+        """Resolve a whitelisted preview asset within the job workspace."""
+        allowed = {"instrumental.wav", "vocals.wav", "background.png",
+                   "bg_cover.png", "bg_thumbnail.png", "thumb_cinematic.png",
+                   "thumb_album.png", "cover.jpg", "yt_thumb.jpg"}
+        safe = Path(name).name
+        if safe not in allowed:
+            return None
+        p = config.WORKSPACE / job.id / safe
+        return p if p.exists() else None
 
     def candidate_lrc(self, job: Job, candidate_id: int) -> str | None:
         for c in job.lrc_candidates:
@@ -104,11 +133,12 @@ class JobManager:
         return None
 
     def submit_review(self, job: Job, *, lrc, offset_ms, thumbnail_layout,
-                      vocal_mode) -> None:
+                      vocal_mode, bg_mode) -> None:
         job.lrc = lrc
         job.offset_ms = int(offset_ms or 0)
         job.thumbnail_layout = thumbnail_layout or "cinematic"
         job.vocal_mode = vocal_mode or "instrumental"
+        job.bg_mode = bg_mode if bg_mode in config.BG_MODES else config.DEFAULT_BG_MODE
         job.status = "running"
         job.stage = "rendering"
         self._queue.put(("finalize", job.id))
@@ -154,6 +184,7 @@ class JobManager:
                         job.ctx, work_dir, out_dir,
                         lrc=job.lrc, offset_ms=job.offset_ms,
                         layout=job.thumbnail_layout, vocal_mode=job.vocal_mode,
+                        bg_mode=job.bg_mode,
                         log=log, stage=stage, progress=progress)
                     job.outputs = outputs
                     job.status = "done"

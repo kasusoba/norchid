@@ -7,6 +7,8 @@ by the caller (UI dropdown / CLI flag) before this runs.
 
 from __future__ import annotations
 
+import contextlib
+import importlib
 import shutil
 from pathlib import Path
 
@@ -16,6 +18,44 @@ from app import config
 def _resolve_model(model_key: str) -> str:
     spec = config.SEP_MODELS.get(model_key) or config.SEP_MODELS[config.DEFAULT_SEP_MODEL]
     return spec["filename"]
+
+
+@contextlib.contextmanager
+def _tqdm_progress(progress_cb, lo=0.2, hi=1.0):
+    """Patch audio-separator's per-chunk tqdm so we can stream real progress.
+
+    The separators iterate chunks under a tqdm bar; we subclass tqdm to forward
+    n/total into ``progress_cb`` mapped onto the [lo, hi] band of the job stage.
+    """
+    if not progress_cb:
+        yield
+        return
+    import tqdm as _t
+
+    class _CB(_t.std.tqdm):
+        def update(self, n=1):
+            r = super().update(n)
+            try:
+                if self.total:
+                    progress_cb(lo + (hi - lo) * min(1.0, self.n / self.total))
+            except Exception:
+                pass
+            return r
+
+    saved = []
+    for name in ("mdxc_separator", "mdx_separator", "vr_separator"):
+        try:
+            m = importlib.import_module(f"audio_separator.separator.architectures.{name}")
+            if hasattr(m, "tqdm"):
+                saved.append((m, m.tqdm))
+                m.tqdm = _CB
+        except Exception:
+            pass
+    try:
+        yield
+    finally:
+        for m, orig in saved:
+            m.tqdm = orig
 
 
 def separate(source: Path, work_dir: Path, model_key: str = config.DEFAULT_SEP_MODEL,
@@ -42,9 +82,10 @@ def separate(source: Path, work_dir: Path, model_key: str = config.DEFAULT_SEP_M
         progress_cb(0.05)
     separator.load_model(model_filename=model_file)
     if progress_cb:
-        progress_cb(0.15)
+        progress_cb(0.2)
 
-    outputs = separator.separate(str(source))
+    with _tqdm_progress(progress_cb, lo=0.2, hi=0.99):
+        outputs = separator.separate(str(source))
     out_paths = [sep_out / o if not Path(o).is_absolute() else Path(o) for o in outputs]
 
     instrumental = _pick(out_paths, ("instrumental", "no vocals", "music", "accompaniment"))

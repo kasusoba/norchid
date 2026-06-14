@@ -56,6 +56,26 @@ def prepare(url: str, work_dir: Path, sep_model: str = config.DEFAULT_SEP_MODEL,
     art = artwork.background_for(meta["artist"], meta["title"], work_dir)
     log(f"  bg_color={art['bg_color']} cover="
         f"{'yes' if art['cover'] else 'fallback'}")
+
+    # Build all background variants + both thumbnail previews up front so the
+    # review screen can switch between them instantly (no re-render per click).
+    yt_thumb = thumbnail.download_yt_thumb(meta.get("yt_thumbnail_url"), work_dir)
+    backgrounds = {"color": art["background"]}
+    if art["cover"]:
+        backgrounds["cover"] = artwork.make_cover_background(
+            art["cover"], work_dir / "bg_cover.png", art["bg_color"])
+    if yt_thumb:
+        backgrounds["thumbnail"] = artwork.make_image_background(
+            yt_thumb, work_dir / "bg_thumbnail.png")
+
+    thumbs = {
+        "cinematic": thumbnail.make_cinematic(
+            meta["title"], yt_thumb, art["bg_color"], work_dir / "thumb_cinematic.png"),
+        "album": thumbnail.make_album(
+            meta["artist"], meta["title"], art["cover"], art["bg_color"],
+            work_dir / "thumb_album.png"),
+    }
+    log(f"  backgrounds: {sorted(backgrounds)} | thumbnails: cinematic+album")
     progress(1.0)
 
     return {
@@ -70,12 +90,16 @@ def prepare(url: str, work_dir: Path, sep_model: str = config.DEFAULT_SEP_MODEL,
         "cover_url": art["cover_url"],
         "bg_color": art["bg_color"],
         "background": art["background"],
+        "backgrounds": backgrounds,
+        "thumbnails": thumbs,
+        "yt_thumb": yt_thumb,
     }
 
 
 def finalize(ctx: dict, work_dir: Path, out_dir: Path, *,
              lrc: str | None, offset_ms: int = 0,
              layout: str = "cinematic", vocal_mode: str = "instrumental",
+             bg_mode: str = config.DEFAULT_BG_MODE,
              log: Log = _noop, stage: Stage = _noop, progress: Progress = _noop) -> dict:
     """Render the video + thumbnail from the (possibly user-edited) review state."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -91,6 +115,10 @@ def finalize(ctx: dict, work_dir: Path, out_dir: Path, *,
         log("  no lyrics — rendering background + audio only")
     progress(0.2)
 
+    backgrounds = ctx.get("backgrounds", {"color": ctx["background"]})
+    background = backgrounds.get(bg_mode) or ctx["background"]
+    log(f"  background mode={bg_mode if bg_mode in backgrounds else 'color (fallback)'}")
+
     log(f"Building audio track (mode={vocal_mode})…")
     render_audio = video.build_audio_track(
         ctx["instrumental"], ctx["vocal"], vocal_mode, work_dir / "render_audio.wav")
@@ -98,15 +126,19 @@ def finalize(ctx: dict, work_dir: Path, out_dir: Path, *,
 
     log("Composing 1080p60 video (ffmpeg + libass)…")
     out_video = work_dir / "output.mp4"
-    video.compose_video(ctx["background"], render_audio, ass_path, out_video,
+    video.compose_video(background, render_audio, ass_path, out_video,
                         duration=duration,
                         progress_cb=lambda p: progress(0.35 + 0.50 * p))
     progress(0.85)
 
     log(f"Generating thumbnail (layout={layout})…")
     out_thumb = work_dir / "thumbnail.png"
-    thumbnail.make_thumbnail(layout, ctx["meta"], work_dir,
-                             ctx["cover"], ctx["bg_color"], out_thumb)
+    pre = ctx.get("thumbnails", {}).get(layout)
+    if pre and Path(pre).exists():
+        shutil.copy2(pre, out_thumb)
+    else:
+        thumbnail.make_thumbnail(layout, ctx["meta"], work_dir,
+                                 ctx["cover"], ctx["bg_color"], out_thumb)
     progress(0.95)
 
     outputs = _collect(out_dir, ctx["meta"], out_video, out_thumb, ctx["instrumental"])

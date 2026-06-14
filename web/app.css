@@ -90,6 +90,39 @@ video { width: 100%; border-radius: 10px; border: 1px solid var(--line); backgro
 .downloads { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
 .downloads a { text-decoration: none; }
 
+/* live preview */
+@font-face {
+  font-family: "Noto Sans CJK JP";
+  src: url("/fonts/NotoSansCJKjp-Bold.otf") format("opentype");
+  font-weight: 700; font-display: swap;
+}
+.preview {
+  position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 10px;
+  overflow: hidden; border: 1px solid var(--line);
+  background: #14161d center/cover no-repeat;
+}
+.preview .line {
+  position: absolute; left: 50%; white-space: nowrap;
+  transform: translate(-50%, -50%);
+  font-family: "Noto Sans CJK JP", system-ui, sans-serif; font-weight: 700;
+  color: #fff; text-shadow: 0 2px 10px rgba(0,0,0,.55); pointer-events: none;
+  will-change: transform, opacity;
+}
+.preview .realframe {
+  position: absolute; inset: 0; background: #000 center/contain no-repeat;
+  z-index: 5;
+}
+.preview .pv-empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:13px; }
+.transport { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.transport .play { width: 44px; height: 38px; flex: none; }
+.transport input[type=range] { flex: 1; accent-color: var(--accent); }
+.transport .time { font: 12px ui-monospace, monospace; color: var(--muted); min-width: 92px; text-align: right; }
+.bgsel { display: flex; gap: 8px; flex-wrap: wrap; }
+.bgsel button { background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); border-radius: 9px; padding: 9px 12px; cursor: pointer; font: inherit; }
+.bgsel button.on { border-color: var(--accent); color: var(--text); }
+.bgsel button:disabled { opacity: .4; cursor: not-allowed; }
+.thumb-preview { width: 100%; border-radius: 10px; border: 1px solid var(--line); display: block; }
+
 .err { color: var(--danger); background: #2a1414; border: 1px solid #4a2020; padding: 12px; border-radius: 9px; }
 .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
 .spacer { height: 14px; }

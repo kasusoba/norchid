@@ -55,14 +55,18 @@ duration + stems), so review is fast and the only thing gating the render.
 Convert **LRC → ASS subtitle → burn over background with ffmpeg/libass**. ASS gives
 styling/positioning/fades for free; no Node, no Premiere.
 
-### 4.1 Spotify-style scroll (windowed highlight)
+### 4.1 Spotify-style smooth scroll (continuous motion)
 - Parse LRC into `[(t_i, text_i)]` (drop empty lines), apply global `offset_ms` to every `t_i`.
 - Video 1920×1080; set ASS `PlayResX/Y` to match.
-- Two inline styles: **Active** = full-opacity white; **Inactive** = white ~45% opacity.
-- For each line `i`, emit one `Dialogue` event over `[t_i, t_{i+1})`, centered (`\an5`), containing
-  a **window** of lines `i-2 … i+2` joined with `\N`. Active line uses Active color; neighbors use
-  Inactive. As `i` advances, the window shifts up → the scroll effect. `\fad(120,120)` per event.
-- Last line's end = song/instrumental end.
+- **Each line is its own positioned `\an5` event** (not a redrawn window). Within an inter-line
+  interval the line **holds** centered, then over the last `TRANSITION_MS` (~450 ms) it **scrolls up
+  one slot** via `\move`, while the highlight hands off to the next line via `\t` on `\alpha`. Because
+  consecutive events share identical positions at their shared boundary, the motion is **continuous**
+  — a real scroll, not a per-line pop/fade. (The earlier windowed-snapshot approach is replaced.)
+- **Active** = full-opacity white; **Inactive** = white ~45% (brighter-only, no size change).
+- The scroll geometry (`SCROLL` in `app/config.py`: font size, line spacing, visible radius,
+  transition, opacity) is **shared with the browser preview** (`/api/render-config`) so the live
+  review preview matches libass. Last line holds centered until song/instrumental end.
 
 ```
 ffmpeg -loop 1 -i background.png -i instrumental.wav \
@@ -78,10 +82,13 @@ ffmpeg -loop 1 -i background.png -i instrumental.wav \
 *Alt renderer if richer motion is wanted later: MoviePy or Remotion. ffmpeg+ASS chosen for v1 =
 fastest, fewest deps.*
 
-### 4.2 Background (Spotify-style)
-- Fetch cover art (iTunes/Deezer by artist+title). Compute **average/dominant** color.
-- **Luma clamp:** if too light (near-white album) → darken toward mid/dark grey so white text stays
-  legible; lightly mute over-saturation. Output a flat 1920×1080 PNG of that color.
+### 4.2 Background (3 modes, chosen in review)
+- **`color`** (default): cover art (iTunes/Deezer) → **average/dominant** color → **luma clamp**
+  (darken near-white toward grey, mute over-saturation) → flat 1920×1080 PNG. Spotify lyrics look.
+- **`cover`**: album art scaled to fill 16:9, heavily blurred + darkened (Spotify full-screen look).
+- **`thumbnail`**: the YouTube thumbnail filled to 16:9 and darkened.
+- All three are generated during `prepare` so the review screen can switch between them instantly;
+  the lyric style carries a subtle outline so white text stays legible over image backgrounds.
 
 ### 4.3 Guide-vocal option (no re-separation)
 audio-separator emits **both** instrumental and vocal stems in one pass. At render:

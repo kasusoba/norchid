@@ -27,6 +27,27 @@ FPS = 60
 THUMB_W = 1280
 THUMB_H = 720
 
+# Scrolling-lyrics model — shared by the ASS renderer AND the browser preview
+# (served via /api/render-config) so they look the same. Spotify-style: lines
+# hold centered, then scroll up one slot over TRANSITION_MS at each line change.
+SCROLL = {
+    "font_size": 60,        # px (PlayResY space)
+    "line_spacing": 104,    # px between line centers
+    "visible_radius": 6,    # lines emitted above/below active (covers 1080 + off-screen)
+    "transition_ms": 450,   # scroll/handoff duration at each line change
+    "alpha_active": 0.0,    # 0 = opaque
+    "alpha_inactive": 0.55, # 0.55 transparent == 45% opacity (D10)
+}
+
+# Video background modes (review step). "color" = flat album color (default),
+# "cover" = album art blurred+darkened, "thumbnail" = YouTube thumb darkened.
+BG_MODES = {
+    "color": "Flat album color",
+    "cover": "Album cover (blurred)",
+    "thumbnail": "Video thumbnail (dark)",
+}
+DEFAULT_BG_MODE = "color"
+
 # Separation models exposed in the UI dropdown (docs/DECISIONS.md D5/D18).
 # Default = BS-Roformer ep_317 (Viperx-1297), the top-SDR general Roformer; it
 # emits both Vocals + Instrumental in one pass (needed for guide-vocal, D6).

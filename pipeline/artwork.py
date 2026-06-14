@@ -113,6 +113,40 @@ def make_flat_background(rgb, path: Path,
     return path
 
 
+def _fill(img: Image.Image, width: int, height: int) -> Image.Image:
+    """Scale + center-crop an image to exactly cover width x height."""
+    scale = max(width / img.width, height / img.height)
+    img = img.resize((max(1, round(img.width * scale)), max(1, round(img.height * scale))))
+    left = (img.width - width) // 2
+    top = (img.height - height) // 2
+    return img.crop((left, top, left + width, top + height))
+
+
+def make_cover_background(cover: Path, path: Path, rgb=(20, 20, 28),
+                         width: int = config.WIDTH, height: int = config.HEIGHT) -> Path:
+    """Album cover scaled to fill 16:9, heavily blurred + darkened (Spotify look)."""
+    from PIL import ImageEnhance, ImageFilter
+    img = _fill(Image.open(cover).convert("RGB"), width, height)
+    img = img.filter(ImageFilter.GaussianBlur(48))
+    img = ImageEnhance.Brightness(img).enhance(0.5)
+    img = ImageEnhance.Color(img).enhance(0.9)
+    # Slight dark vignette toward the edges keeps centered text crisp.
+    img = Image.blend(img, Image.new("RGB", (width, height), tuple(rgb)), 0.18)
+    img.save(path)
+    return path
+
+
+def make_image_background(src: Path, path: Path,
+                          width: int = config.WIDTH, height: int = config.HEIGHT) -> Path:
+    """A 16:9 source image (e.g. YouTube thumbnail) darkened for white text."""
+    from PIL import ImageEnhance, ImageFilter
+    img = _fill(Image.open(src).convert("RGB"), width, height)
+    img = img.filter(ImageFilter.GaussianBlur(6))
+    img = ImageEnhance.Brightness(img).enhance(0.45)
+    img.save(path)
+    return path
+
+
 def background_for(artist: str, title: str, work_dir: Path) -> dict:
     """Full step: cover -> dominant -> clamp -> flat bg PNG.
 

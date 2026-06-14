@@ -30,6 +30,14 @@ class ReviewSubmit(BaseModel):
     offset_ms: int = 0
     thumbnail_layout: str = "cinematic"
     vocal_mode: str = "instrumental"
+    bg_mode: str = config.DEFAULT_BG_MODE
+
+
+class PreviewFrame(BaseModel):
+    lrc: str | None = None
+    offset_ms: int = 0
+    t: float = 0.0
+    bg_mode: str = config.DEFAULT_BG_MODE
 
 
 @app.get("/api/models")
@@ -39,7 +47,15 @@ def list_models():
         "models": [{"id": k, "label": v["label"]} for k, v in config.SEP_MODELS.items()],
         "layouts": ["cinematic", "album"],
         "vocal_modes": ["instrumental", "guide"],
+        "bg_modes": [{"id": k, "label": v} for k, v in config.BG_MODES.items()],
+        "default_bg_mode": config.DEFAULT_BG_MODE,
     }
+
+
+@app.get("/api/render-config")
+def render_config():
+    """Scroll geometry shared with the browser preview so it matches libass."""
+    return {"width": config.WIDTH, "height": config.HEIGHT, "scroll": config.SCROLL}
 
 
 @app.post("/api/jobs")
@@ -89,8 +105,46 @@ def submit_review(jid: str, body: ReviewSubmit):
         raise HTTPException(409, "job has no prepared context yet")
     manager.submit_review(job, lrc=body.lrc, offset_ms=body.offset_ms,
                           thumbnail_layout=body.thumbnail_layout,
-                          vocal_mode=body.vocal_mode)
+                          vocal_mode=body.vocal_mode, bg_mode=body.bg_mode)
     return {"ok": True, "job_id": job.id}
+
+
+@app.get("/api/jobs/{jid}/asset/{name}")
+def get_asset(jid: str, name: str):
+    """Serve a whitelisted preview asset (audio/background/thumbnail) from the
+    job workspace — used by the live review preview."""
+    job = manager.get(jid)
+    if not job:
+        raise HTTPException(404, "job not found")
+    path = manager.asset_path(job, name)
+    if not path:
+        raise HTTPException(404, "asset not found")
+    return FileResponse(path)
+
+
+@app.post("/api/jobs/{jid}/preview-frame")
+def preview_frame(jid: str, body: PreviewFrame):
+    """Render a single libass frame at time t — the exact-fidelity spot-check
+    for the live preview (the browser preview is a close approximation)."""
+    job = manager.get(jid)
+    if not job or not job.ctx:
+        raise HTTPException(404, "job not ready")
+    from pipeline import ass_render, video
+    work_dir = config.WORKSPACE / jid
+    ctx = job.ctx
+    backgrounds = ctx.get("backgrounds", {"color": ctx["background"]})
+    background = backgrounds.get(body.bg_mode) or ctx["background"]
+    out = work_dir / "preview_frame.png"
+    try:
+        ass_path = None
+        if body.lrc and body.lrc.strip():
+            ass_path = work_dir / "preview.ass"
+            ass_render.write_ass(body.lrc, str(ass_path), duration=ctx["duration"],
+                                 offset_ms=body.offset_ms)
+        video.render_still(background, ass_path, body.t, out)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, f"preview render failed: {e}")
+    return FileResponse(out, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/files/{jid}/{name}")
@@ -108,5 +162,7 @@ def index():
     return (WEB / "index.html").read_text(encoding="utf-8")
 
 
-# Static assets (app.css, vendored alpine.js).
+# Static assets (app.css, vendored alpine.js) + vendored fonts for the preview
+# (so the browser preview uses the same Noto Sans CJK as the libass render).
 app.mount("/static", StaticFiles(directory=str(WEB)), name="static")
+app.mount("/fonts", StaticFiles(directory=str(config.FONTS_DIR)), name="fonts")

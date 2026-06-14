@@ -28,6 +28,8 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="thumbnail layout")
     p.add_argument("--vocal-mode", default="instrumental",
                    choices=["instrumental", "guide"], help="guide-vocal mix")
+    p.add_argument("--bg-mode", default=config.DEFAULT_BG_MODE,
+                   choices=list(config.BG_MODES), help="video background mode")
     p.add_argument("--lrc-file", type=Path, default=None,
                    help="use a custom .lrc file instead of LRCLIB")
     p.add_argument("--out-dir", type=Path, default=config.OUTPUTS,
@@ -65,7 +67,7 @@ def main(argv=None) -> int:
         outputs = runner.finalize(
             ctx, work_dir, out_dir,
             lrc=lrc, offset_ms=args.offset_ms,
-            layout=args.layout, vocal_mode=args.vocal_mode,
+            layout=args.layout, vocal_mode=args.vocal_mode, bg_mode=args.bg_mode,
             log=log, stage=stage)
     except Exception as e:  # noqa: BLE001
         print(f"\nERROR: {e}", file=sys.stderr)

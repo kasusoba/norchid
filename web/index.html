@@ -14,7 +14,7 @@
     <h1>norchid</h1>
     <span class="tag">YouTube → instrumental + scrolling-lyrics karaoke video</span>
   </header>
-  <p class="sub">Paste a link, review the lyrics &amp; timing, render a 1080p60 video + thumbnail.</p>
+  <p class="sub">Paste a link, preview &amp; tune the lyrics live, render a 1080p60 video + thumbnail.</p>
 
   <!-- ============ INPUT ============ -->
   <template x-if="screen === 'input'">
@@ -45,7 +45,7 @@
     <div class="card">
       <div class="flex-between">
         <strong x-text="stageLabel"></strong>
-        <span class="stage-pill" x-text="job.stage"></span>
+        <span class="stage-pill" x-text="`${job.stage} · ${Math.round((job.progress||0)*100)}%`"></span>
       </div>
       <div class="spacer"></div>
       <div class="progress"><i :style="`width:${Math.round((job.progress||0)*100)}%`"></i></div>
@@ -53,28 +53,44 @@
       <template x-if="job.meta && job.meta.title">
         <p class="muted" x-text="`${job.meta.artist || ''} — ${job.meta.title}`"></p>
       </template>
-      <div class="logs" x-ref="logbox" x-text="(job.logs||[]).join('\n')"></div>
-      <div class="hint">Separation is the slow step; the page updates live.</div>
+      <div class="logs" x-text="(job.logs||[]).join('\n')"></div>
+      <div class="hint">Separation is the slow step; the bar tracks it chunk-by-chunk.</div>
     </div>
   </template>
 
   <!-- ============ REVIEW ============ -->
   <template x-if="screen === 'review'">
     <div>
+      <!-- live preview -->
       <div class="card">
-        <div class="meta">
-          <img :src="review.cover_url || ''" x-show="review.cover_url" alt="cover" />
-          <div>
-            <h3 x-text="review.meta.title"></h3>
-            <div class="muted" x-text="review.meta.artist"></div>
-            <div class="muted" style="margin-top:6px">
-              background <span class="swatch" :style="`background:rgb(${review.bg_color.join(',')})`"></span>
-              <span x-show="!review.has_synced" class="badge no" style="margin-left:8px">no synced lyrics found — paste below</span>
-            </div>
+        <div class="flex-between" style="margin-bottom:10px">
+          <strong x-text="`${review.meta.artist || ''} — ${review.meta.title || ''}`"></strong>
+          <small class="muted">live preview ≈ final render</small>
+        </div>
+        <div class="preview" x-ref="stage" :style="bgStyle">
+          <div class="pv-empty" x-show="!parsed.length && !realFrame">no timed lyrics — paste LRC below</div>
+          <div class="realframe" x-show="realFrame" :style="realFrame ? `background-image:url(${realFrame})` : ''"></div>
+        </div>
+        <div class="transport">
+          <button class="btn play" @click="togglePlay()" x-text="playing ? '❚❚' : '►'"></button>
+          <input type="range" min="0" :max="pvDuration || 1" step="0.05"
+                 :value="curTime" @input="seek($event.target.value)" />
+          <span class="time" x-text="fmtT(curTime) + ' / ' + fmtT(pvDuration)"></span>
+        </div>
+        <div class="flex-between" style="margin-top:10px">
+          <div class="bgsel">
+            <template x-for="b in review.backgrounds" :key="b.id">
+              <button :class="form.bg_mode===b.id && 'on'" :disabled="!b.available"
+                      @click="pickBg(b.id)" x-text="b.label"></button>
+            </template>
           </div>
+          <button class="btn ghost" @click="refreshRealFrame()" title="render one exact libass frame here">
+            ⟳ exact frame
+          </button>
         </div>
       </div>
 
+      <!-- lyric candidates -->
       <div class="card">
         <div class="flex-between">
           <label style="margin:0">Lyric candidates (LRCLIB)</label>
@@ -91,7 +107,7 @@
               <div>
                 <span class="badge" x-show="c.synced">synced</span>
                 <span class="badge no" x-show="!c.synced">plain</span>
-                <small x-show="c.duration" x-text="fmtDur(c.duration)"></small>
+                <small x-show="c.duration" x-text="fmtT(c.duration)"></small>
               </div>
             </div>
           </template>
@@ -99,41 +115,58 @@
         </div>
       </div>
 
+      <!-- lyrics + timing -->
       <div class="card">
-        <label>Lyrics (LRC) — edit freely, paste romaji, fix timing</label>
-        <textarea x-model="form.lrc" spellcheck="false"
+        <label>Lyrics (LRC) — edits update the preview live</label>
+        <textarea x-model="form.lrc" spellcheck="false" @input.debounce.250ms="onLrcChange()"
                   placeholder="[00:12.34] first line&#10;[00:15.00] second line"></textarea>
-        <div class="hint">Lines are <code>[mm:ss.xx] text</code>. Plain text without timestamps is ignored by the renderer.</div>
+        <div class="hint">Lines are <code>[mm:ss.xx] text</code>. Plain lines without timestamps are ignored.</div>
 
         <div class="spacer"></div>
         <div class="row">
           <div class="col">
             <label>Global offset (ms) — + delays lyrics</label>
             <div style="display:flex;gap:8px">
-              <button class="btn ghost" @click="form.offset_ms -= 100">−100</button>
-              <input type="number" step="50" x-model.number="form.offset_ms" />
-              <button class="btn ghost" @click="form.offset_ms += 100">+100</button>
+              <button class="btn ghost" @click="nudge(-100)">−100</button>
+              <input type="number" step="50" x-model.number="form.offset_ms" @input.debounce.150ms="onOffsetChange()" />
+              <button class="btn ghost" @click="nudge(100)">+100</button>
             </div>
+            <div class="hint">Tip: play the preview and nudge until the highlight hits the beat.</div>
           </div>
           <div class="col">
+            <label>Audio</label>
+            <div class="seg">
+              <button :class="form.vocal_mode==='instrumental' && 'on'" @click="setVocal('instrumental')">Instrumental</button>
+              <button :class="form.vocal_mode==='guide' && 'on'" @click="setVocal('guide')">Guide vocal</button>
+            </div>
+            <div class="hint" x-show="form.vocal_mode==='guide' && !review.vocal_url">Guide applied at render (no vocal stem for preview).</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- thumbnail -->
+      <div class="card">
+        <div class="row">
+          <div class="col" style="flex:1 1 320px">
             <label>Thumbnail layout</label>
             <div class="seg">
               <button :class="form.layout==='cinematic' && 'on'" @click="form.layout='cinematic'">Cinematic</button>
               <button :class="form.layout==='album' && 'on'" @click="form.layout='album'">Album</button>
             </div>
-          </div>
-          <div class="col">
-            <label>Audio</label>
-            <div class="seg">
-              <button :class="form.vocal_mode==='instrumental' && 'on'" @click="form.vocal_mode='instrumental'">Instrumental</button>
-              <button :class="form.vocal_mode==='guide' && 'on'" @click="form.vocal_mode='guide'">Guide vocal</button>
-            </div>
+            <div class="spacer"></div>
+            <img class="thumb-preview" :src="review.thumbnails[form.layout]" alt="thumbnail preview" />
           </div>
         </div>
+      </div>
 
-        <div class="spacer"></div>
+      <div class="card">
         <button class="btn green" @click="submitReview()">Render video →</button>
       </div>
+
+      <!-- audio elements driving the preview -->
+      <audio x-ref="inst" :src="review.instrumental_url" preload="auto"
+             @loadedmetadata="onAudioReady()" @ended="onEnded()"></audio>
+      <audio x-ref="voc" :src="review.vocal_url || ''" preload="auto"></audio>
     </div>
   </template>
 
@@ -169,13 +202,22 @@
 <script>
 function norchid() {
   return {
-    cfg: { models: [], layouts: [], vocal_modes: [], default: 'roformer' },
-    form: { url: '', sep_model: 'roformer', lrc: '', offset_ms: 0, layout: 'cinematic', vocal_mode: 'instrumental' },
+    cfg: { models: [], default: 'roformer' },
+    rcfg: { width: 1920, height: 1080, scroll: { font_size: 60, line_spacing: 104, visible_radius: 6, transition_ms: 450, alpha_active: 0, alpha_inactive: 0.55 } },
+    form: { url: '', sep_model: 'roformer', lrc: '', offset_ms: 0, layout: 'cinematic', vocal_mode: 'instrumental', bg_mode: 'color' },
     jobId: null,
     job: { status: null, stage: '', progress: 0, logs: [], outputs: {}, meta: {} },
-    review: { meta: {}, candidates: [], bg_color: [38,48,66], has_synced: false, cover_url: null },
+    review: { meta: {}, candidates: [], bg_color: [38,48,66], has_synced: false, backgrounds: [], thumbnails: {}, instrumental_url: null, vocal_url: null, duration: 0 },
     reviewLoaded: false,
     timer: null,
+    // preview state
+    parsed: [],
+    lineEls: [],
+    playing: false,
+    curTime: 0,
+    pvDuration: 0,
+    realFrame: null,
+    _raf: null,
 
     get screen() {
       if (!this.jobId) return 'input';
@@ -190,63 +232,181 @@ function norchid() {
                fetching_lyrics:'Fetching lyrics & cover…', rendering:'Rendering 1080p60 video…',
                queued:'Queued…'})[this.job.stage] || 'Working…';
     },
+    get bgStyle() {
+      const b = (this.review.backgrounds || []).find(x => x.id === this.form.bg_mode);
+      return b && b.available ? `background-image:url(${b.url})` : '';
+    },
 
     async init() {
-      try { this.cfg = await (await fetch('/api/models')).json();
-            this.form.sep_model = this.cfg.default; } catch (e) {}
+      try { this.cfg = await (await fetch('/api/models')).json(); this.form.sep_model = this.cfg.default; } catch (e) {}
+      try { this.rcfg = await (await fetch('/api/render-config')).json(); } catch (e) {}
     },
-    fmtDur(s) { s = Math.round(s||0); return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`; },
+    fmtT(s) { s = Math.max(0, Math.round(s||0)); return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`; },
 
     async start() {
       if (!this.form.url.trim()) return;
       const r = await fetch('/api/jobs', { method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ youtube_url: this.form.url.trim(), sep_model: this.form.sep_model }) });
-      const d = await r.json();
-      this.jobId = d.job_id;
+      this.jobId = (await r.json()).job_id;
       this.reviewLoaded = false;
       this.startPolling();
     },
-
     startPolling() {
       if (this.timer) clearInterval(this.timer);
-      this.timer = setInterval(() => this.poll(), 1200);
+      this.timer = setInterval(() => this.poll(), 1000);
       this.poll();
     },
     async poll() {
       if (!this.jobId) return;
-      try {
-        this.job = await (await fetch(`/api/jobs/${this.jobId}`)).json();
-      } catch (e) { return; }
+      try { this.job = await (await fetch(`/api/jobs/${this.jobId}`)).json(); } catch (e) { return; }
       if (this.job.status === 'awaiting_review' && !this.reviewLoaded) this.loadReview();
-      if (this.job.status === 'done' || this.job.status === 'error') {
-        clearInterval(this.timer); this.timer = null;
-      }
+      if (this.job.status === 'done' || this.job.status === 'error') { clearInterval(this.timer); this.timer = null; }
     },
 
     async loadReview() {
       this.review = await (await fetch(`/api/jobs/${this.jobId}/review`)).json();
       this.form.lrc = this.review.lrc || '';
       this.form.offset_ms = this.review.offset_ms || 0;
-      this.form.layout = this.review.thumbnail_layout || 'cinematic';
+      this.form.bg_mode = this.review.bg_mode || 'color';
       this.form.vocal_mode = this.review.vocal_mode || 'instrumental';
       this.reviewLoaded = true;
-    },
-    async pickCandidate(cid) {
-      const d = await (await fetch(`/api/jobs/${this.jobId}/candidate/${cid}`)).json();
-      if (d.lrc) this.form.lrc = d.lrc;
+      this.$nextTick(() => this.setupPreview());
     },
 
+    // ---------- preview engine (mirrors pipeline/ass_render.py) ----------
+    parseLrc(text, offsetMs) {
+      const re = /\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
+      const off = (offsetMs || 0) / 1000, out = [];
+      for (const raw of (text||'').split('\n')) {
+        re.lastIndex = 0; let m; const stamps = [];
+        while ((m = re.exec(raw)) !== null) stamps.push(m);
+        if (!stamps.length) continue;
+        const body = raw.replace(re, '').trim();
+        if (!body) continue;
+        for (const s of stamps) {
+          let t = (+s[1])*60 + (+s[2]);
+          if (s[3]) t += (+s[3].padEnd(3,'0'))/1000;
+          out.push({ t: Math.max(0, t + off), text: body });
+        }
+      }
+      out.sort((a,b) => a.t - b.t);
+      return out;
+    },
+    scrollPosAt(tau) {
+      const L = this.parsed; const n = L.length;
+      if (!n || tau < L[0].t) return null;
+      let i = 0; for (let k=0;k<n;k++){ if (L[k].t<=tau) i=k; else break; }
+      if (i+1 >= n) return i;
+      const t1 = L[i+1].t, tw = Math.min(this.rcfg.scroll.transition_ms/1000, t1 - L[i].t);
+      const moveStart = t1 - tw;
+      if (tau < moveStart) return i;
+      return i + Math.min(1, Math.max(0, (tau - moveStart) / Math.max(1e-3, t1 - moveStart)));
+    },
+    buildLines() {
+      const stage = this.$refs.stage; if (!stage) return;
+      stage.querySelectorAll('.line').forEach(e => e.remove());
+      this.lineEls = this.parsed.map(l => {
+        const d = document.createElement('div');
+        d.className = 'line'; d.textContent = l.text; d.style.display = 'none';
+        stage.appendChild(d); return d;
+      });
+      this.renderFrame(this.curTime);
+    },
+    renderFrame(tau) {
+      const stage = this.$refs.stage; if (!stage) return;
+      const sc = stage.clientWidth / this.rcfg.width;
+      const midY = stage.clientHeight / 2;
+      const S = this.rcfg.scroll;
+      const Ls = S.line_spacing * sc, fs = S.font_size * sc;
+      const opA = 1 - S.alpha_active, opI = 1 - S.alpha_inactive, vr = S.visible_radius;
+      const sp = this.scrollPosAt(tau);
+      this.lineEls.forEach((el, j) => {
+        if (sp === null) { el.style.display = 'none'; return; }
+        const rel = j - sp;
+        if (Math.abs(rel) > vr + 0.5) { el.style.display = 'none'; return; }
+        el.style.display = '';
+        el.style.fontSize = fs + 'px';
+        el.style.top = (midY + rel * Ls) + 'px';
+        const w = Math.max(0, 1 - Math.abs(rel));
+        el.style.opacity = (opI + (opA - opI) * w).toFixed(3);
+      });
+    },
+    setupPreview() {
+      this.parsed = this.parseLrc(this.form.lrc, this.form.offset_ms);
+      this.buildLines();
+      const a = this.$refs.inst;
+      if (a && a.readyState >= 1) this.pvDuration = a.duration || this.review.duration || 0;
+      this.loop();
+    },
+    loop() {
+      if (this.screen !== 'review') { this._raf = null; return; }
+      const a = this.$refs.inst;
+      if (a) this.curTime = a.currentTime || 0;
+      if (!this.realFrame) this.renderFrame(this.curTime);
+      this._raf = requestAnimationFrame(() => this.loop());
+    },
+    onAudioReady() {
+      const a = this.$refs.inst;
+      this.pvDuration = (a && a.duration) || this.review.duration || 0;
+    },
+    onEnded() { this.playing = false; const v=this.$refs.voc; if (v) v.pause(); },
+
+    togglePlay() {
+      const a = this.$refs.inst, v = this.$refs.voc;
+      if (!a) return;
+      this.clearRealFrame();
+      if (a.paused) {
+        a.play(); this.playing = true;
+        if (this.form.vocal_mode === 'guide' && this.review.vocal_url && v) { v.currentTime = a.currentTime; v.volume = 0.15; v.play(); }
+      } else { a.pause(); this.playing = false; if (v) v.pause(); }
+    },
+    seek(val) {
+      const a = this.$refs.inst, v = this.$refs.voc;
+      if (a) { a.currentTime = +val; this.curTime = +val; }
+      if (v) v.currentTime = +val;
+      this.clearRealFrame();
+      this.renderFrame(this.curTime);
+    },
+    setVocal(mode) {
+      this.form.vocal_mode = mode;
+      const a = this.$refs.inst, v = this.$refs.voc;
+      if (!v || !this.review.vocal_url) return;
+      if (mode === 'guide' && a && !a.paused) { v.currentTime = a.currentTime; v.volume = 0.15; v.play(); }
+      else { v.pause(); }
+    },
+    pickBg(id) { const b=this.review.backgrounds.find(x=>x.id===id); if (b && b.available) { this.form.bg_mode = id; this.clearRealFrame(); } },
+    onLrcChange() { this.parsed = this.parseLrc(this.form.lrc, this.form.offset_ms); this.clearRealFrame(); this.buildLines(); },
+    onOffsetChange() { this.parsed = this.parseLrc(this.form.lrc, this.form.offset_ms); this.clearRealFrame(); this.renderFrame(this.curTime); },
+    nudge(d) { this.form.offset_ms = (+this.form.offset_ms||0) + d; this.onOffsetChange(); },
+
+    async refreshRealFrame() {
+      try {
+        const r = await fetch(`/api/jobs/${this.jobId}/preview-frame`, { method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ lrc: this.form.lrc, offset_ms: this.form.offset_ms, t: this.curTime, bg_mode: this.form.bg_mode }) });
+        if (!r.ok) return;
+        if (this.realFrame) URL.revokeObjectURL(this.realFrame);
+        this.realFrame = URL.createObjectURL(await r.blob());
+      } catch (e) {}
+    },
+    clearRealFrame() { if (this.realFrame) { URL.revokeObjectURL(this.realFrame); this.realFrame = null; } },
+
+    async pickCandidate(cid) {
+      const d = await (await fetch(`/api/jobs/${this.jobId}/candidate/${cid}`)).json();
+      if (d.lrc) { this.form.lrc = d.lrc; this.onLrcChange(); }
+    },
     async submitReview() {
+      const a = this.$refs.inst; if (a) a.pause(); this.playing = false;
       await fetch(`/api/jobs/${this.jobId}/review`, { method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ lrc: this.form.lrc, offset_ms: this.form.offset_ms,
-          thumbnail_layout: this.form.layout, vocal_mode: this.form.vocal_mode }) });
+          thumbnail_layout: this.form.layout, vocal_mode: this.form.vocal_mode, bg_mode: this.form.bg_mode }) });
       this.job.status = 'running'; this.job.stage = 'rendering';
       this.startPolling();
     },
-
     reset() {
       if (this.timer) clearInterval(this.timer);
-      this.jobId = null; this.reviewLoaded = false;
+      if (this._raf) cancelAnimationFrame(this._raf);
+      this.clearRealFrame();
+      this.jobId = null; this.reviewLoaded = false; this.parsed = []; this.lineEls = []; this.playing = false;
       this.job = { status: null, stage: '', progress: 0, logs: [], outputs: {}, meta: {} };
       this.form.url = '';
     },

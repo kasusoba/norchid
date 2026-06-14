@@ -49,6 +49,13 @@ BG_MODES = {
 }
 DEFAULT_BG_MODE = "color"
 
+# libass scales Noto CJK by the font's (oversized) vertical metrics, so a given
+# Fontsize renders ~0.65x while a browser renders the em at ~0.98x. Multiply the
+# ASS Fontsize by this so the libass render matches the browser preview's glyph
+# size. Uniform font scaling → corrects Latin + CJK alike. (Empirically calibrated;
+# line spacing is set explicitly and is unaffected.)
+CJK_LIBASS_SCALE = 1.5077
+
 # Separation models exposed in the UI dropdown (docs/DECISIONS.md D5/D18).
 # Default = BS-Roformer ep_317 (Viperx-1297), the top-SDR general Roformer; it
 # emits both Vocals + Instrumental in one pass (needed for guide-vocal, D6).

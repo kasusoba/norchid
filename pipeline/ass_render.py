@@ -98,6 +98,9 @@ def build_ass(
 
     cx = width // 2
     mid = height / 2
+    # libass renders Noto CJK smaller than a browser at the same nominal size;
+    # scale the Fontsize so the video glyphs match the live preview (config note).
+    ass_font_size = round(font_size * config.CJK_LIBASS_SCALE)
 
     header = f"""[Script Info]
 ; norchid scrolling-lyrics render
@@ -110,7 +113,7 @@ YCbCr Matrix: TV.709
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Lyric,{font},{font_size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H50000000,0,0,0,0,100,100,0,0,1,0,2,5,40,40,0,1
+Style: Lyric,{font},{ass_font_size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,5,40,40,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -120,17 +123,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     events: list[str] = []
 
     # Intro: before the first lyric, hold the opening window centered (Spotify
-    # shows upcoming lines waiting). This matches the browser preview, which
-    # shows the opening lines from t=0.
+    # shows upcoming lines waiting). All lines stay DIM — nothing is highlighted
+    # until its own timestamp is reached. Matches the browser preview.
     if lines and lines[0].t > 0.05:
         for j in range(0, vr + 1):
             if j >= n:
                 break
             y = mid + j * L
-            alpha = a_active if j == 0 else a_inact
             events.append(
                 f"Dialogue: 0,{_ass_time(0)},{_ass_time(lines[0].t)},Lyric,,0,0,0,,"
-                f"{{\\an5\\pos({cx},{y:.0f})\\alpha{alpha}}}{_escape(lines[j].text)}")
+                f"{{\\an5\\pos({cx},{y:.0f})\\alpha{a_inact}}}{_escape(lines[j].text)}")
 
     for i in range(n):
         t0 = lines[i].t

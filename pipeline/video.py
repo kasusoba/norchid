@@ -88,7 +88,10 @@ def compose_video(
 
     cmd = [
         "ffmpeg", "-y",
-        "-loop", "1", "-i", str(background),
+        # -framerate on the looped image makes the INPUT 60fps, so libass renders
+        # the scroll animation at 60 distinct frames/sec (without it the image
+        # input defaults to 25fps and the motion is choppy regardless of -r).
+        "-loop", "1", "-framerate", str(fps), "-i", str(background),
         "-i", str(audio),
         *(["-vf", vf] if vf else []),
         "-r", str(fps),

@@ -85,6 +85,13 @@ def create_job(body: CreateJob):
     return {"job_id": job.id}
 
 
+@app.get("/api/jobs")
+def list_jobs():
+    """Resumable jobs persisted on disk — lets the UI reopen a prepared song
+    without re-downloading/separating (survives server restarts)."""
+    return {"jobs": manager.list_public()}
+
+
 @app.get("/api/jobs/{jid}")
 def get_job(jid: str):
     job = manager.get(jid)

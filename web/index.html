@@ -18,20 +18,39 @@
 
   <!-- ============ INPUT ============ -->
   <template x-if="screen === 'input'">
-    <div class="card" style="max-width:640px;margin:0 auto">
-      <label>YouTube URL</label>
-      <input type="text" x-model="form.url" placeholder="https://www.youtube.com/watch?v=…"
-             @keydown.enter="start()" />
-      <div class="spacer"></div>
-      <label>Separation model</label>
-      <select x-model="form.sep_model">
-        <template x-for="m in cfg.models" :key="m.id">
-          <option :value="m.id" x-text="m.label"></option>
-        </template>
-      </select>
-      <div class="hint">Roformer = best quality. MDX-NET = faster draft.</div>
-      <div class="spacer"></div>
-      <button class="btn block" @click="start()" :disabled="!form.url.trim()">Start →</button>
+    <div style="max-width:640px;margin:0 auto">
+      <div class="card">
+        <label>YouTube URL</label>
+        <input type="text" x-model="form.url" placeholder="https://www.youtube.com/watch?v=…"
+               @keydown.enter="start()" />
+        <div class="spacer"></div>
+        <label>Separation model</label>
+        <select x-model="form.sep_model">
+          <template x-for="m in cfg.models" :key="m.id">
+            <option :value="m.id" x-text="m.label"></option>
+          </template>
+        </select>
+        <div class="hint">Roformer = best quality. MDX-NET = faster draft.</div>
+        <div class="spacer"></div>
+        <button class="btn block" @click="start()" :disabled="!form.url.trim()">Start →</button>
+      </div>
+
+      <div class="card" x-show="jobList.length">
+        <div class="ctl-label"><label style="margin:0">Resume a previous song</label>
+          <small class="muted">no re-separation</small></div>
+        <div class="spacer"></div>
+        <div class="candidates">
+          <template x-for="j in jobList" :key="j.id">
+            <div class="cand" @click="resume(j.id)">
+              <div>
+                <div x-text="`${j.artist ? j.artist + ' — ' : ''}${j.title}`"></div>
+                <small x-text="j.id"></small>
+              </div>
+              <span class="badge" :class="j.status!=='done' && 'no'" x-text="j.status==='done' ? 'done' : (j.status==='awaiting_review' ? 'ready' : j.status)"></span>
+            </div>
+          </template>
+        </div>
+      </div>
     </div>
   </template>
 
@@ -195,7 +214,10 @@
     <div class="card">
       <div class="flex-between">
         <strong>Done ✅</strong>
-        <button class="btn ghost" @click="reset()">New song</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn ghost" @click="reopenReview()">Edit &amp; re-render</button>
+          <button class="btn ghost" @click="reset()">New song</button>
+        </div>
       </div>
       <div class="spacer"></div>
       <video x-show="job.outputs.video" :src="job.outputs.video" controls></video>
@@ -227,6 +249,8 @@ function norchid() {
     form: { url: '', sep_model: 'roformer', lrc: '', romaji: '', offset_ms: 0, vocal_mode: 'instrumental', bg_mode: 'color', title_secondary: '', title_size: 110, pill_size: 38, thumb_bg: 'youtube', lyric_size: 60 },
     romajiLines: [],
     jobId: null,
+    jobList: [],
+    forceReview: false,
     job: { status: null, stage: '', progress: 0, logs: [], outputs: {}, meta: {} },
     review: { meta: {}, candidates: [], bg_color: [38,48,66], has_synced: false, backgrounds: [], thumbnail_url: null, instrumental_url: null, vocal_url: null, duration: 0, title_secondary: '' },
     reviewLoaded: false,
@@ -243,6 +267,7 @@ function norchid() {
     get screen() {
       if (!this.jobId) return 'input';
       const s = this.job.status;
+      if (this.forceReview && (s === 'done' || s === 'awaiting_review')) return 'review';
       if (s === 'error') return 'error';
       if (s === 'done') return 'done';
       if (s === 'awaiting_review') return 'review';
@@ -262,8 +287,17 @@ function norchid() {
       try { this.cfg = await (await fetch('/api/models')).json(); this.form.sep_model = this.cfg.default; } catch (e) {}
       try { this.rcfg = await (await fetch('/api/render-config')).json(); } catch (e) {}
       this.form.lyric_size = this.rcfg.scroll.font_size;
+      this.loadJobList();
       this.renderLoop();   // ONE persistent loop from page load — no start-timing to get wrong
     },
+    async loadJobList() {
+      try { this.jobList = (await (await fetch('/api/jobs')).json()).jobs || []; } catch (e) {}
+    },
+    resume(jid) {
+      this.jobId = jid; this.reviewLoaded = false; this.forceReview = false;
+      this.startPolling();
+    },
+    reopenReview() { this.forceReview = true; this.reviewLoaded = false; this.loadReview(); },
     fmtT(s) { s = Math.max(0, Math.round(s||0)); return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`; },
 
     async start() {
@@ -289,6 +323,8 @@ function norchid() {
     async loadReview() {
       this.review = await (await fetch(`/api/jobs/${this.jobId}/review`)).json();
       this.form.lrc = this.review.lrc || '';
+      this.form.romaji = this.review.romaji || '';
+      this.form.lyric_size = this.review.lyric_size || this.rcfg.scroll.font_size;
       this.form.offset_ms = this.review.offset_ms || 0;
       this.form.bg_mode = this.review.bg_mode || 'color';
       this.form.vocal_mode = this.review.vocal_mode || 'instrumental';
@@ -521,15 +557,18 @@ function norchid() {
           title_secondary: this.form.title_secondary, title_size: this.form.title_size,
           pill_size: this.form.pill_size, thumb_bg: this.form.thumb_bg,
           lyric_size: this.form.lyric_size }) });
+      this.forceReview = false;
       this.job.status = 'running'; this.job.stage = 'rendering';
       this.startPolling();
     },
     reset() {
       if (this.timer) clearInterval(this.timer);
       this.clearRealFrame();
-      this.jobId = null; this.reviewLoaded = false; this.parsed = []; this.lineEls = []; this.playing = false;
+      this.jobId = null; this.reviewLoaded = false; this.forceReview = false;
+      this.parsed = []; this.lineEls = []; this.playing = false;
       this.job = { status: null, stage: '', progress: 0, logs: [], outputs: {}, meta: {} };
       this.form.url = '';
+      this.loadJobList();
     },
   };
 }

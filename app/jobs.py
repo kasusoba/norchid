@@ -33,6 +33,7 @@ class Job:
     bg_mode: str = config.DEFAULT_BG_MODE
     title_secondary: str = ""
     title_size: int = config.THUMB_TITLE_SIZE
+    lyric_size: int = 0   # 0 = default scroll font size
     outputs: dict = field(default_factory=dict)
     logs: list = field(default_factory=list)
     error: str | None = None
@@ -134,7 +135,7 @@ class JobManager:
         return None
 
     def submit_review(self, job: Job, *, lrc, offset_ms, vocal_mode, bg_mode,
-                      title_secondary, title_size) -> None:
+                      title_secondary, title_size, lyric_size) -> None:
         job.lrc = lrc
         job.offset_ms = int(offset_ms or 0)
         job.vocal_mode = vocal_mode or "instrumental"
@@ -142,6 +143,7 @@ class JobManager:
         job.title_secondary = (title_secondary or "").strip()
         job.meta["title_secondary"] = job.title_secondary
         job.title_size = int(title_size or config.THUMB_TITLE_SIZE)
+        job.lyric_size = int(lyric_size or 0)
         job.status = "running"
         job.stage = "rendering"
         self._queue.put(("finalize", job.id))
@@ -188,6 +190,7 @@ class JobManager:
                         lrc=job.lrc, offset_ms=job.offset_ms,
                         vocal_mode=job.vocal_mode, bg_mode=job.bg_mode,
                         title_secondary=job.title_secondary, title_size=job.title_size,
+                        lyric_size=job.lyric_size,
                         log=log, stage=stage, progress=progress)
                     job.outputs = outputs
                     job.status = "done"

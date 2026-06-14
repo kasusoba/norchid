@@ -100,6 +100,7 @@ def finalize(ctx: dict, work_dir: Path, out_dir: Path, *,
              bg_mode: str = config.DEFAULT_BG_MODE,
              title_secondary: str | None = None,
              title_size: int = config.THUMB_TITLE_SIZE,
+             lyric_size: int | None = None,
              log: Log = _noop, stage: Stage = _noop, progress: Progress = _noop) -> dict:
     """Render the video + thumbnail from the (possibly user-edited) review state."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -109,8 +110,9 @@ def finalize(ctx: dict, work_dir: Path, out_dir: Path, *,
     ass_path = None
     if lrc and lrc.strip():
         ass_path = work_dir / "lyrics.ass"
-        n = ass_render.write_ass(lrc, str(ass_path), duration=duration, offset_ms=offset_ms)
-        log(f"  wrote ASS with {len(n)} lines (offset={offset_ms}ms)")
+        n = ass_render.write_ass(lrc, str(ass_path), duration=duration, offset_ms=offset_ms,
+                                 scroll=config.scroll_for(lyric_size))
+        log(f"  wrote ASS with {len(n)} lines (offset={offset_ms}ms, size={lyric_size or 'default'})")
     else:
         log("  no lyrics — rendering background + audio only")
     progress(0.2)

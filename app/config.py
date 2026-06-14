@@ -72,6 +72,16 @@ DEFAULT_SEP_MODEL = "roformer"
 GUIDE_VOCAL_GAIN = 0.15
 
 
+def scroll_for(font_size: int | None) -> dict:
+    """Scroll geometry for a chosen lyric font size (line spacing scales with it)."""
+    base = SCROLL
+    if not font_size:
+        return base
+    fs = max(28, min(110, int(font_size)))
+    ratio = base["line_spacing"] / base["font_size"]
+    return {**base, "font_size": fs, "line_spacing": round(fs * ratio)}
+
+
 def use_gpu() -> bool:
     """Whether a CUDA GPU should be used for separation."""
     if os.environ.get("NORCHID_FORCE_CPU"):

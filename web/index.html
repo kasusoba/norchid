@@ -143,6 +143,10 @@
             <div class="hint" x-show="form.vocal_mode==='guide' && !review.vocal_url">Guide applied at render (no vocal stem for preview).</div>
           </div>
         </div>
+        <div class="spacer"></div>
+        <label>Lyric font size — <span x-text="form.lyric_size"></span> px (preview updates live)</label>
+        <input type="range" min="36" max="96" step="2" x-model.number="form.lyric_size"
+               @input="onLyricSize()" style="width:100%;accent-color:var(--accent)" />
       </div>
 
       <!-- thumbnail -->
@@ -204,7 +208,7 @@ function norchid() {
   return {
     cfg: { models: [], default: 'roformer' },
     rcfg: { width: 1920, height: 1080, scroll: { font_size: 60, line_spacing: 104, visible_radius: 6, transition_ms: 450, alpha_active: 0, alpha_inactive: 0.55 } },
-    form: { url: '', sep_model: 'roformer', lrc: '', offset_ms: 0, vocal_mode: 'instrumental', bg_mode: 'color', title_secondary: '', title_size: 110 },
+    form: { url: '', sep_model: 'roformer', lrc: '', offset_ms: 0, vocal_mode: 'instrumental', bg_mode: 'color', title_secondary: '', title_size: 110, lyric_size: 60 },
     jobId: null,
     job: { status: null, stage: '', progress: 0, logs: [], outputs: {}, meta: {} },
     review: { meta: {}, candidates: [], bg_color: [38,48,66], has_synced: false, backgrounds: [], thumbnail_url: null, instrumental_url: null, vocal_url: null, duration: 0, title_secondary: '' },
@@ -217,8 +221,7 @@ function norchid() {
     pvDuration: 0,
     realFrame: null,
     thumbSrc: '',
-    _raf: null,
-    _looping: false,
+    _dirty: false,
 
     get screen() {
       if (!this.jobId) return 'input';
@@ -241,6 +244,8 @@ function norchid() {
     async init() {
       try { this.cfg = await (await fetch('/api/models')).json(); this.form.sep_model = this.cfg.default; } catch (e) {}
       try { this.rcfg = await (await fetch('/api/render-config')).json(); } catch (e) {}
+      this.form.lyric_size = this.rcfg.scroll.font_size;
+      this.renderLoop();   // ONE persistent loop from page load — no start-timing to get wrong
     },
     fmtT(s) { s = Math.max(0, Math.round(s||0)); return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`; },
 
@@ -274,8 +279,7 @@ function norchid() {
       this.thumbSrc = this.review.thumbnail_url + '?_=' + Date.now();
       this.reviewLoaded = true;
       this.parsed = this.parseLrc(this.form.lrc, this.form.offset_ms);
-      this._dirty = true;
-      this.$nextTick(() => this.startLoop());
+      this._dirty = true;   // the persistent renderLoop() rebuilds + renders next frame
     },
 
     // ---------- preview engine (mirrors pipeline/ass_render.py) ----------
@@ -316,9 +320,14 @@ function norchid() {
       const w = stage.clientWidth || stage.offsetWidth;
       if (w) canvas.style.transform = `scale(${w / this.rcfg.width})`;
     },
+    lineSpacing() {
+      // Keep the Spotify-ish spacing ratio when the lyric size is tuned.
+      const ratio = this.rcfg.scroll.line_spacing / this.rcfg.scroll.font_size;
+      return (+this.form.lyric_size || this.rcfg.scroll.font_size) * ratio;
+    },
     buildLines(canvas) {
       canvas.querySelectorAll('.line').forEach(e => e.remove());
-      const fs = this.rcfg.scroll.font_size, cx = this.rcfg.width / 2;
+      const fs = +this.form.lyric_size || this.rcfg.scroll.font_size, cx = this.rcfg.width / 2;
       this.lineEls = this.parsed.map(l => {
         const d = document.createElement('div');
         d.className = 'line'; d.textContent = l.text;
@@ -330,7 +339,7 @@ function norchid() {
     },
     curTime() { const a = this.$refs.inst; return a ? (a.currentTime || 0) : 0; },
     renderFrame(tau) {
-      const S = this.rcfg.scroll, midY = this.rcfg.height / 2;
+      const S = this.rcfg.scroll, midY = this.rcfg.height / 2, L = this.lineSpacing();
       const opA = 1 - S.alpha_active, opI = 1 - S.alpha_inactive, vr = S.visible_radius;
       const sp = this.scrollPosAt(tau);
       for (let j = 0; j < this.lineEls.length; j++) {
@@ -339,41 +348,39 @@ function norchid() {
         const rel = j - sp;
         if (Math.abs(rel) > vr + 0.5) { el.style.display = 'none'; continue; }
         el.style.display = '';
-        el.style.top = (midY + rel * S.line_spacing) + 'px';
+        el.style.top = (midY + rel * L) + 'px';
         const w = Math.max(0, 1 - Math.abs(rel));
         el.style.opacity = (opI + (opA - opI) * w).toFixed(3);
       }
     },
-    // One self-rescheduling RAF loop. Reads refs fresh every frame, rebuilds the
-    // line DOM when marked dirty, and never dies (errors are swallowed). This is
-    // robust to Alpine mount timing — the review screen uses x-show so the
-    // canvas/audio/scrubber refs are always in the DOM.
-    startLoop() {
-      if (this._looping) return;
-      this._looping = true;
+    // ONE persistent RAF loop, started in init() and running for the page's life.
+    // Each frame: if we're on the review screen with a canvas, (re)build lines
+    // when dirty, fit the canvas, and update clock/scrubber/scroll. It never
+    // stops and never throws out — so there is no start-timing or teardown to
+    // get wrong. Idle (early-return) on every other screen.
+    renderLoop() {
       const tick = () => {
-        this._raf = requestAnimationFrame(tick);          // reschedule FIRST
-        if (this.screen !== 'review') { this._looping = false; cancelAnimationFrame(this._raf); this._raf = null; return; }
+        requestAnimationFrame(tick);
         try {
+          if (this.screen !== 'review') return;
           const canvas = this.$refs.canvas;
           if (!canvas) return;
           if (this._dirty) { this.buildLines(canvas); this._dirty = false; }
           this.fitCanvas(canvas);
           const a = this.$refs.inst;
-          if (a && a.duration) this.pvDuration = a.duration;
+          if (a && a.duration && isFinite(a.duration)) this.pvDuration = a.duration;
           const t = a ? (a.currentTime || 0) : 0;
           const scrub = this.$refs.scrub, lbl = this.$refs.timeLabel;
           if (scrub && document.activeElement !== scrub) { scrub.max = this.pvDuration || 1; scrub.value = t; }
           if (lbl) lbl.textContent = this.fmtT(t) + ' / ' + this.fmtT(this.pvDuration);
           if (!this.realFrame) this.renderFrame(t);
-        } catch (e) { /* never let the loop die */ }
+        } catch (e) { /* keep looping no matter what */ }
       };
-      this._raf = requestAnimationFrame(tick);
+      requestAnimationFrame(tick);
     },
     onAudioReady() {
       const a = this.$refs.inst;
       this.pvDuration = (a && a.duration) || this.review.duration || 0;
-      this.startLoop();   // backup trigger once the audio (and its DOM) is ready
     },
     onEnded() { this.playing = false; const v=this.$refs.voc; if (v) v.pause(); },
 
@@ -403,12 +410,13 @@ function norchid() {
     pickBg(id) { const b=this.review.backgrounds.find(x=>x.id===id); if (b && b.available) { this.form.bg_mode = id; this.clearRealFrame(); } },
     onLrcChange() { this.parsed = this.parseLrc(this.form.lrc, this.form.offset_ms); this.clearRealFrame(); this._dirty = true; },
     onOffsetChange() { this.parsed = this.parseLrc(this.form.lrc, this.form.offset_ms); this.clearRealFrame(); },
+    onLyricSize() { this._dirty = true; this.clearRealFrame(); },   // rebuild lines at new size
     nudge(d) { this.form.offset_ms = (+this.form.offset_ms||0) + d; this.onOffsetChange(); },
 
     async refreshRealFrame() {
       try {
         const r = await fetch(`/api/jobs/${this.jobId}/preview-frame`, { method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ lrc: this.form.lrc, offset_ms: this.form.offset_ms, t: this.curTime(), bg_mode: this.form.bg_mode }) });
+          body: JSON.stringify({ lrc: this.form.lrc, offset_ms: this.form.offset_ms, t: this.curTime(), bg_mode: this.form.bg_mode, lyric_size: this.form.lyric_size }) });
         if (!r.ok) return;
         if (this.realFrame) URL.revokeObjectURL(this.realFrame);
         this.realFrame = URL.createObjectURL(await r.blob());
@@ -436,14 +444,13 @@ function norchid() {
       await fetch(`/api/jobs/${this.jobId}/review`, { method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ lrc: this.form.lrc, offset_ms: this.form.offset_ms,
           vocal_mode: this.form.vocal_mode, bg_mode: this.form.bg_mode,
-          title_secondary: this.form.title_secondary, title_size: this.form.title_size }) });
+          title_secondary: this.form.title_secondary, title_size: this.form.title_size,
+          lyric_size: this.form.lyric_size }) });
       this.job.status = 'running'; this.job.stage = 'rendering';
       this.startPolling();
     },
     reset() {
       if (this.timer) clearInterval(this.timer);
-      if (this._raf) cancelAnimationFrame(this._raf);
-      this._looping = false;
       this.clearRealFrame();
       this.jobId = null; this.reviewLoaded = false; this.parsed = []; this.lineEls = []; this.playing = false;
       this.job = { status: null, stage: '', progress: 0, logs: [], outputs: {}, meta: {} };

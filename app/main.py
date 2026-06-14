@@ -43,6 +43,7 @@ class ReviewSubmit(BaseModel):
     bg_mode: str = config.DEFAULT_BG_MODE
     title_secondary: str = ""
     title_size: int = config.THUMB_TITLE_SIZE
+    lyric_size: int = 0
 
 
 class PreviewFrame(BaseModel):
@@ -50,6 +51,7 @@ class PreviewFrame(BaseModel):
     offset_ms: int = 0
     t: float = 0.0
     bg_mode: str = config.DEFAULT_BG_MODE
+    lyric_size: int = 0
 
 
 @app.get("/api/models")
@@ -116,7 +118,8 @@ def submit_review(jid: str, body: ReviewSubmit):
         raise HTTPException(409, "job has no prepared context yet")
     manager.submit_review(job, lrc=body.lrc, offset_ms=body.offset_ms,
                           vocal_mode=body.vocal_mode, bg_mode=body.bg_mode,
-                          title_secondary=body.title_secondary, title_size=body.title_size)
+                          title_secondary=body.title_secondary, title_size=body.title_size,
+                          lyric_size=body.lyric_size)
     return {"ok": True, "job_id": job.id}
 
 
@@ -170,7 +173,8 @@ def preview_frame(jid: str, body: PreviewFrame):
         if body.lrc and body.lrc.strip():
             ass_path = work_dir / "preview.ass"
             ass_render.write_ass(body.lrc, str(ass_path), duration=ctx["duration"],
-                                 offset_ms=body.offset_ms)
+                                 offset_ms=body.offset_ms,
+                                 scroll=config.scroll_for(body.lyric_size))
         video.render_still(background, ass_path, body.t, out)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, f"preview render failed: {e}")
@@ -185,6 +189,12 @@ def get_file(jid: str, name: str):
     if not path.exists():
         raise HTTPException(404, "file not found")
     return FileResponse(path, filename=safe)
+
+
+@app.get("/favicon.ico")
+def favicon():
+    from fastapi import Response
+    return Response(status_code=204)
 
 
 @app.get("/", response_class=HTMLResponse)

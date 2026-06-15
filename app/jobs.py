@@ -127,6 +127,9 @@ class Job:
             "bg_color": list(self.bg_color),
             "vocal_mode": self.vocal_mode,
             "bg_mode": self.bg_mode,
+            # ctx present => prepared (separation/lyrics done); can go to review and
+            # re-render even if a later step (e.g. the render) failed.
+            "can_review": self.ctx is not None,
             "outputs": {k: f"/api/files/{self.id}/{Path(v).name}"
                         for k, v in self.outputs.items()},
             "logs": self.logs[-200:],

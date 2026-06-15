@@ -25,8 +25,19 @@ YouTube URL
 
 ## Quick start
 
-System deps: **ffmpeg** (built with libass) and a CUDA GPU (optional — CPU works,
-slower). Fonts are vendored in `assets/fonts/` (Noto Sans CJK + Montserrat ExtraBold).
+System deps: **ffmpeg built with libass** (for burning the scrolling lyrics) and a CUDA
+GPU (optional — CPU works, slower). Fonts are vendored in `assets/fonts/` (Noto Sans CJK +
+Montserrat ExtraBold).
+
+> ⚠️ Homebrew's **core** `ffmpeg` (8.x) is now built *without* libass — the `ass` filter is
+> missing and the render fails with "No such filter: 'ass'". Check with
+> `ffmpeg -filters | grep ' ass '`. To get a libass build:
+> ```bash
+> brew tap homebrew-ffmpeg/ffmpeg
+> brew unlink ffmpeg
+> brew install homebrew-ffmpeg/ffmpeg/ffmpeg   # libass is on by default in this tap
+> ```
+> (or use any static full build). Separation only needs plain ffmpeg, so audio still works.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate

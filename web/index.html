@@ -339,7 +339,11 @@
       <div class="err" x-text="job.error || 'Something went wrong.'"></div>
       <div class="logs" style="margin-top:12px" x-text="(job.logs||[]).join('\n')"></div>
       <div class="spacer"></div>
-      <button class="btn ghost" @click="reset()">Start over</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn green" x-show="job.can_review" @click="reopenReview()">Edit &amp; re-render</button>
+        <button class="btn ghost" @click="reset()">Start over</button>
+      </div>
+      <div class="hint" x-show="job.can_review">The audio &amp; lyrics are already prepared — re-rendering reuses them (no re-download/separation).</div>
     </div>
   </template>
 
@@ -381,7 +385,8 @@ function norchid() {
     get screen() {
       if (!this.jobId) return 'input';
       const s = this.job.status;
-      if (this.forceReview && (s === 'done' || s === 'awaiting_review')) return 'review';
+      if (this.forceReview && (s === 'done' || s === 'awaiting_review'
+          || (s === 'error' && this.job.can_review))) return 'review';
       if (s === 'error') return 'error';
       if (s === 'done') return 'done';
       if (s === 'awaiting_review') return 'review';

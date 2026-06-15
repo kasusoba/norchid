@@ -6,16 +6,53 @@ docs/ARCHITECTURE.md §4 / §4.3. Picks h264_nvenc when a CUDA GPU is present
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
 
 from app import config
 
+_LIBASS_HINT = (
+    "Your ffmpeg has no 'ass' subtitle filter — it was built without libass, so "
+    "the scrolling lyrics can't be burned into the video.\n"
+    "Homebrew's core ffmpeg (8.x) no longer bundles libass. Install one that has it:\n"
+    "  brew tap homebrew-ffmpeg/ffmpeg\n"
+    "  brew unlink ffmpeg\n"
+    "  brew install homebrew-ffmpeg/ffmpeg/ffmpeg\n"
+    "(libass is on by default in that tap; or drop in a static full build). "
+    "Verify with:  ffmpeg -filters | grep ' ass '"
+)
+
 
 def _escape_filter_path(p: str) -> str:
     """Escape a path for use inside an ffmpeg filtergraph argument."""
     return p.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+
+
+_ass_ok = False   # cache the positive result only, so installing ffmpeg mid-run is seen
+
+
+def has_ass_filter() -> bool:
+    """True if this ffmpeg can render ASS/SSA subtitles (libass compiled in)."""
+    global _ass_ok
+    if _ass_ok:
+        return True
+    try:
+        out = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-filters"],
+            capture_output=True, text=True, check=True,
+        ).stdout
+        # filter rows look like: " ... ass   S->V  ...". Match the name column.
+        _ass_ok = bool(re.search(r"^\s*[A-Z.]+\s+(?:ass|subtitles)\s", out, re.M))
+    except Exception:
+        _ass_ok = False
+    return _ass_ok
+
+
+def _require_ass_filter() -> None:
+    if not has_ass_filter():
+        raise RuntimeError(_LIBASS_HINT)
 
 
 def _has_nvenc() -> bool:
@@ -77,6 +114,7 @@ def compose_video(
     """
     vf = None
     if ass_path is not None:
+        _require_ass_filter()
         vf = (
             f"ass={_escape_filter_path(str(ass_path))}"
             f":fontsdir={_escape_filter_path(str(fonts_dir))}"
@@ -131,6 +169,7 @@ def render_still(background: Path, ass_path: Path | None, t: float, out_path: Pa
     """
     filters = [f"setpts=PTS+{max(0.0, t):.3f}/TB"]
     if ass_path is not None:
+        _require_ass_filter()
         filters.append(f"ass={_escape_filter_path(str(ass_path))}"
                        f":fontsdir={_escape_filter_path(str(fonts_dir))}")
     cmd = [
@@ -144,3 +183,4 @@ def render_still(background: Path, ass_path: Path | None, t: float, out_path: Pa
 def ensure_ffmpeg() -> None:
     if not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg not found on PATH (need a build with libass).")
+    _require_ass_filter()

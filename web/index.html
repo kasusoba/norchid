@@ -170,19 +170,15 @@
         <div class="hint" x-show="publishMsg" x-text="publishMsg"></div>
 
         <div x-show="tapOpen" class="tap-editor">
-          <div class="hint" style="margin-top:0">Use the <b>player on the left</b> (switched to <b>Original/vocals</b> so you can hear the singing).
-            Tap <b>Space</b> or the button as each line starts — or <b>click any line</b> to jump there and re-time just
-            that one. Untouched lines keep their timestamps; the preview scrolls live as you tap.</div>
-          <div class="spacer"></div>
-          <textarea x-model="tapText" @input="onTapTextChange()" spellcheck="false" style="min-height:110px"
-                    placeholder="first line&#10;second line&#10;…"></textarea>
-          <div style="display:flex;gap:8px;margin-top:8px">
+          <div class="hint" style="margin-top:0">This list mirrors the <b>LRC box above</b> live — edit the words there, tap times here, both stay in sync (no Apply).
+            Use the <b>player on the left</b> (switched to <b>Original/vocals</b> to hear the singing): tap <b>Space</b> or the button
+            as each line starts, or <b>click a line</b> to jump there and re-time just that one. The preview scrolls live as you tap.</div>
+          <div style="display:flex;gap:8px;margin-top:10px">
             <button class="btn green" style="flex:2" @click="tap()" :disabled="tapIdx>=tapLines.length">
               TAP <span x-text="`${Math.min(tapIdx+1,tapLines.length)}/${tapLines.length}`"></span>
             </button>
             <button class="btn ghost" @click="tapUndo()" :disabled="!tapIdx">Undo</button>
-            <button class="btn ghost" @click="tapReload()" title="re-pull lyrics + timing from the LRC box">↻ Reload</button>
-            <button class="btn ghost" @click="tapRestart()" title="clear every timestamp">Clear all</button>
+            <button class="btn ghost" @click="tapRestart()" title="clear every timestamp">Clear all times</button>
           </div>
           <div class="tap-lines">
             <template x-for="(l,i) in tapLines" :key="i">
@@ -194,8 +190,6 @@
               </div>
             </template>
           </div>
-          <div class="spacer"></div>
-          <button class="btn green block" @click="tapApply()" :disabled="!tapLines.some(l=>l.t!=null)">Apply timing → LRC</button>
         </div>
 
         <div class="spacer"></div>
@@ -379,7 +373,7 @@ function norchid() {
     _resumePlay: false,
     uploading: false,
     // tap-sync editor
-    tapOpen: false, tapText: '', tapLines: [], tapIdx: 0,
+    tapOpen: false, tapIdx: 0,
     publishing: false, publishMsg: '',
 
     get screen() {
@@ -504,7 +498,7 @@ function norchid() {
       this.form.thumb_bg = this.review.thumb_bg || 'youtube';
       this.thumbSrc = this.review.thumbnail_url + '?_=' + Date.now();
       // Fresh review: single player back to the instrumental, tap session cleared.
-      this.playSource = 'instrumental'; this.tapOpen = false; this.tapLines = []; this.tapText = '';
+      this.playSource = 'instrumental'; this.tapOpen = false; this.tapIdx = 0;
       this.reviewLoaded = true;
       this.reparse();
       this._dirty = true;   // the persistent renderLoop() rebuilds + renders next frame
@@ -760,58 +754,50 @@ function norchid() {
       t = Math.max(0, t); const m = Math.floor(t/60), s = (t%60);
       return `${String(m).padStart(2,'0')}:${s.toFixed(2).padStart(5,'0')}`;
     },
-    openTap() {
-      this.tapOpen = true;
-      // First open: pull in the current LRC (with its timestamps) so you can
-      // tweak existing timing instead of starting from scratch. An in-progress
-      // session (tapLines already built) is kept; use "Reload" to re-pull.
-      if (!this.tapLines.length) this.tapReload();
-      // Hear the vocals while timing — the same single player, just a different src.
-      this.setPlaySource('original');
-    },
-    closeTap() { this.tapOpen = false; this.setPlaySource('instrumental'); },
-    lrcToTapLines(lrc) {
-      // One {text, t} per word-line; t = seconds, or null when the line is untimed.
+    // Parse EVERY line of form.lrc → {text, t} in document order (blanks and
+    // empty-timed interlude markers preserved), so write-back never loses them.
+    _lrcRows() {
       const re = /\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]/;
       const strip = /\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]/g;
-      return (lrc || '').split('\n').map(raw => {
+      return (this.form.lrc || '').split('\n').map(raw => {
         const m = raw.match(re);
         let t = null;
         if (m) { t = (+m[1]) * 60 + (+m[2]); if (m[3]) t += (+m[3].padEnd(3, '0')) / 1000; }
         return { text: raw.replace(strip, '').trim(), t };
-      }).filter(l => l.text);
+      });
     },
-    tapReload() {
-      const seeded = this.lrcToTapLines(this.form.lrc);
-      this.tapText = seeded.map(l => l.text).join('\n');
-      this.tapLines = seeded;
-      this.tapIdx = this.firstUntimedIdx();
+    // LIVE view for the tap list: only word lines, each carrying its row index in
+    // the full LRC. This IS form.lrc — edit the box and the list updates; tap a
+    // line and it writes straight back (no separate buffer, no Reload/Apply).
+    get tapLines() {
+      return this._lrcRows().map((r, idx) => ({ ...r, idx })).filter(r => r.text);
+    },
+    // Serialize the full rows back into the LRC box and refresh the preview.
+    // Interlude markers (timed, no text) stay as a bare "[mm:ss.xx]".
+    _writeRows(rows) {
+      this.form.lrc = rows.map(r =>
+        r.t != null ? (r.text ? `[${this.fmtLrc(r.t)}] ${r.text}` : `[${this.fmtLrc(r.t)}]`)
+                    : r.text).join('\n');
+      this.onLrcChange();
+    },
+    _setRowTime(dispIdx, t) {
+      const disp = this.tapLines;
+      if (dispIdx < 0 || dispIdx >= disp.length) return;
+      const rows = this._lrcRows();
+      rows[disp[dispIdx].idx].t = t;
+      this._writeRows(rows);
     },
     firstUntimedIdx() {
-      const i = (this.tapLines || []).findIndex(l => l.t == null);
+      const i = this.tapLines.findIndex(l => l.t == null);
       return i >= 0 ? i : 0;
     },
-    buildTapLines() {
-      // Rebuild from the words box while keeping the times you've already set.
-      const texts = this.tapText.split('\n').map(s => s.trim()).filter(Boolean);
-      const prev = this.tapLines || [];
-      if (texts.length === prev.length) {
-        // Same number of lines (typo fix / rewording): keep times by position.
-        this.tapLines = texts.map((text, i) => ({ text, t: prev[i] ? prev[i].t : null }));
-      } else {
-        // Structural change (split a line, insert/delete): re-match each line to a
-        // prior one by its words so untouched lines keep the right time; new/changed
-        // lines come up untimed (—) rather than inheriting a neighbour's stamp.
-        const pool = prev.map(p => ({ t: p.t, text: p.text, used: false }));
-        this.tapLines = texts.map(text => {
-          const hit = pool.find(p => !p.used && p.text === text);
-          if (hit) { hit.used = true; return { text, t: hit.t }; }
-          return { text, t: null };
-        });
-      }
-      if (this.tapIdx >= this.tapLines.length) this.tapIdx = Math.max(0, this.tapLines.length - 1);
+    openTap() {
+      this.tapOpen = true;
+      this.tapIdx = this.firstUntimedIdx();
+      // Hear the vocals while timing — the same single player, just a different src.
+      this.setPlaySource('original');
     },
-    onTapTextChange() { this.buildTapLines(); },
+    closeTap() { this.tapOpen = false; this.setPlaySource('instrumental'); },
     tapPick(i) {
       // Select a line and jump the single player just before it, to re-time it.
       this.tapIdx = i;
@@ -820,18 +806,21 @@ function norchid() {
     },
     tap() {
       if (this.tapIdx >= this.tapLines.length) return;
-      this.tapLines[this.tapIdx].t = this.curTime(); this.tapIdx++;
+      this._setRowTime(this.tapIdx, this.curTime());   // → LRC box + preview, instantly
+      this.tapIdx++;
     },
-    tapUndo() { if (this.tapIdx > 0) { this.tapIdx--; this.tapLines[this.tapIdx].t = null; } },
-    tapClear(i) { if (this.tapLines[i]) { this.tapLines[i].t = null; this.tapIdx = i; } },
-    tapRestart() { this.tapLines.forEach(l => l.t = null); this.tapIdx = 0; this.seek(0); },
-    tapApply() {
-      // Keep every timed line (existing + just-tapped), emitted in time order.
-      const timed = this.tapLines.filter(l => l.t != null && l.text).slice().sort((a, b) => a.t - b.t);
-      if (!timed.length) return;
-      this.form.lrc = timed.map(l => `[${this.fmtLrc(l.t)}] ${l.text}`).join('\n');
-      this.onLrcChange();
-      this.closeTap();
+    tapUndo() {
+      if (this.tapIdx <= 0) return;
+      this.tapIdx--;
+      this._setRowTime(this.tapIdx, null);
+    },
+    tapClear(i) { this._setRowTime(i, null); this.tapIdx = i; },
+    tapRestart() {
+      // Clear timestamps on word lines (interlude markers kept).
+      const rows = this._lrcRows();
+      const wordIdx = new Set(this.tapLines.map(l => l.idx));
+      rows.forEach((r, idx) => { if (wordIdx.has(idx)) r.t = null; });
+      this._writeRows(rows); this.tapIdx = 0; this.seek(0);
     },
     keyTap(e) {
       if (!this.tapOpen || e.code !== 'Space') return;
@@ -887,7 +876,7 @@ function norchid() {
       this.clearRealFrame();
       this.jobId = null; this.reviewLoaded = false; this.forceReview = false;
       this.parsed = []; this.lineEls = []; this.playing = false;
-      this.playSource = 'instrumental'; this.tapOpen = false; this.tapLines = []; this.tapText = '';
+      this.playSource = 'instrumental'; this.tapOpen = false; this.tapIdx = 0;
       this.job = { status: null, stage: '', progress: 0, logs: [], outputs: {}, meta: {} };
       this.form.url = '';
       this.loadJobList();

@@ -26,8 +26,16 @@ def _noop(*_a, **_k):
 
 
 def prepare(url: str, work_dir: Path, sep_model: str = config.DEFAULT_SEP_MODEL,
+            instrumental_path: Path | None = None, vocal_path: Path | None = None,
             log: Log = _noop, stage: Stage = _noop, progress: Progress = _noop) -> dict:
-    """Run everything up to (and excluding) the render. Returns review context."""
+    """Run everything up to (and excluding) the render. Returns review context.
+
+    When ``instrumental_path`` is given the slow separation step is skipped and
+    that file is used as the instrumental. An optional ``vocal_path`` is used as
+    the vocal stem (enabling guide-vocal mode); without it the job is
+    instrumental-only. The YouTube URL is still downloaded for metadata, cover
+    art and the thumbnail.
+    """
     work_dir.mkdir(parents=True, exist_ok=True)
 
     stage("downloading"); progress(0.0)
@@ -37,10 +45,19 @@ def prepare(url: str, work_dir: Path, sep_model: str = config.DEFAULT_SEP_MODEL,
     source = Path(meta["source_path"])
 
     stage("separating"); progress(0.0)
-    if not config.use_gpu():
-        log("⚠ No CUDA GPU detected — separation will run on CPU (much slower).")
-    log(f"Separating stems (model={sep_model}) — this is the slow step…")
-    sep = separate.separate(source, work_dir, sep_model, progress_cb=progress)
+    if instrumental_path:
+        log(f"Using supplied instrumental ({Path(instrumental_path).name}) — "
+            f"skipping separation." +
+            (f" + vocal ({Path(vocal_path).name})" if vocal_path else ""))
+        sep = separate.import_instrumental(
+            Path(instrumental_path), work_dir,
+            vocal_source=Path(vocal_path) if vocal_path else None)
+        progress(1.0)
+    else:
+        if not config.use_gpu():
+            log("⚠ No CUDA GPU detected — separation will run on CPU (much slower).")
+        log(f"Separating stems (model={sep_model}) — this is the slow step…")
+        sep = separate.separate(source, work_dir, sep_model, progress_cb=progress)
     log(f"  instrumental={sep['instrumental'].name} vocal="
         f"{sep['vocal'].name if sep['vocal'] else 'none'}")
 

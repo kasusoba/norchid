@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -29,11 +29,6 @@ async def _no_cache_frontend(request, call_next):
     if path == "/" or path.startswith("/static") or path.startswith("/fonts"):
         response.headers["Cache-Control"] = "no-store, must-revalidate"
     return response
-
-
-class CreateJob(BaseModel):
-    youtube_url: str
-    sep_model: str = config.DEFAULT_SEP_MODEL
 
 
 class ReviewSubmit(BaseModel):
@@ -81,12 +76,29 @@ def render_config():
     return {"width": config.WIDTH, "height": config.HEIGHT, "scroll": config.SCROLL}
 
 
+async def _read_upload(f: UploadFile | None, fallback: str) -> tuple[bytes, str] | None:
+    if f is None:
+        return None
+    data = await f.read()
+    return (data, f.filename or fallback) if data else None
+
+
 @app.post("/api/jobs")
-def create_job(body: CreateJob):
-    url = body.youtube_url.strip()
+async def create_job(
+    youtube_url: str = Form(...),
+    sep_model: str = Form(config.DEFAULT_SEP_MODEL),
+    instrumental: UploadFile | None = File(None),
+    vocal: UploadFile | None = File(None),
+):
+    """Create a job. Optionally upload your own instrumental — when present,
+    separation is skipped and that audio is used as the instrumental. An optional
+    vocal file (only used alongside an instrumental) enables guide-vocal mode."""
+    url = youtube_url.strip()
     if not url:
         raise HTTPException(400, "youtube_url is required")
-    job = manager.create(url, body.sep_model)
+    inst = await _read_upload(instrumental, "instrumental")
+    voc = await _read_upload(vocal, "vocal")
+    job = manager.create(url, sep_model, instrumental=inst, vocal=voc)
     return {"job_id": job.id}
 
 

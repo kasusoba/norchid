@@ -22,6 +22,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("url", help="YouTube URL")
     p.add_argument("--sep-model", default=config.DEFAULT_SEP_MODEL,
                    choices=list(config.SEP_MODELS), help="separation model")
+    p.add_argument("--instrumental", type=Path, default=None,
+                   help="use your own instrumental file instead of separating "
+                        "(any ffmpeg-readable audio)")
+    p.add_argument("--vocal", type=Path, default=None,
+                   help="optional vocal/acapella file (only with --instrumental) "
+                        "to enable --vocal-mode guide")
     p.add_argument("--offset", type=int, default=0, dest="offset_ms",
                    help="global lyric offset in ms (+ delays lyrics)")
     p.add_argument("--title-secondary", default=None,
@@ -63,7 +69,18 @@ def main(argv=None) -> int:
         print(f"[{s}]", flush=True)
 
     try:
+        if args.instrumental and not args.instrumental.exists():
+            print(f"ERROR: instrumental file not found: {args.instrumental}", file=sys.stderr)
+            return 1
+        if args.vocal and not args.instrumental:
+            print("ERROR: --vocal requires --instrumental", file=sys.stderr)
+            return 1
+        if args.vocal and not args.vocal.exists():
+            print(f"ERROR: vocal file not found: {args.vocal}", file=sys.stderr)
+            return 1
         ctx = runner.prepare(args.url, work_dir, args.sep_model,
+                             instrumental_path=args.instrumental,
+                             vocal_path=args.vocal,
                              log=log, stage=stage)
 
         lrc = ctx["lrc"]

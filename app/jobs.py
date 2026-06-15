@@ -20,7 +20,8 @@ from pipeline import artwork, lyrics, runner
 
 # Persisted, machine-portable per-job state (the heavy artifacts already live in
 # workspace/<id>/; we only need the metadata to rehydrate a job after a restart).
-_PERSIST_FIELDS = ("url", "sep_model", "status", "stage", "meta", "offset_ms",
+_PERSIST_FIELDS = ("url", "sep_model", "custom_instrumental", "status", "stage",
+                   "meta", "offset_ms",
                    "vocal_mode", "bg_mode", "title_secondary", "title_size",
                    "pill_size", "thumb_bg", "pill_gap", "pill_color", "title_main", "lyric_size",
                    "lrc", "romaji", "lrc_candidates", "outputs", "error")
@@ -84,6 +85,7 @@ class Job:
     id: str
     url: str
     sep_model: str = config.DEFAULT_SEP_MODEL
+    custom_instrumental: bool = False   # user supplied the instrumental (no separation)
     status: str = "queued"          # queued|running|awaiting_review|done|error
     stage: str = "queued"           # downloading|separating|fetching_lyrics|rendering|done
     progress: float = 0.0
@@ -106,6 +108,8 @@ class Job:
 
     # Internal (not serialized verbatim to the client).
     ctx: dict | None = None
+    instrumental_src: Path | None = None   # user-uploaded instrumental, pre-prepare
+    vocal_src: Path | None = None          # optional user-uploaded vocal stem
     lrc: str | None = None
     romaji: str | None = None
     lrc_candidates: list = field(default_factory=list)
@@ -176,15 +180,33 @@ class JobManager:
         return list(reversed(items))
 
     # --- public API -------------------------------------------------------
-    def create(self, url: str, sep_model: str) -> Job:
+    def create(self, url: str, sep_model: str,
+               instrumental: tuple[bytes, str] | None = None,
+               vocal: tuple[bytes, str] | None = None) -> Job:
         jid = uuid.uuid4().hex[:10]
         job = Job(id=jid, url=url,
                   sep_model=sep_model if sep_model in config.SEP_MODELS
                   else config.DEFAULT_SEP_MODEL)
+        if instrumental:
+            wd = config.WORKSPACE / jid
+            wd.mkdir(parents=True, exist_ok=True)
+            job.instrumental_src = self._stash_upload(wd, "instrumental_src", instrumental)
+            job.custom_instrumental = True
+            # A vocal upload only makes sense alongside a custom instrumental.
+            if vocal:
+                job.vocal_src = self._stash_upload(wd, "vocal_src", vocal)
         with self._lock:
             self.jobs[jid] = job
         self._queue.put(("prepare", jid))
         return job
+
+    @staticmethod
+    def _stash_upload(wd: Path, stem: str, payload: tuple[bytes, str]) -> Path:
+        data, filename = payload
+        suffix = Path(filename or "").suffix or ".audio"
+        dst = wd / f"{stem}{suffix}"
+        dst.write_bytes(data)
+        return dst
 
     def get(self, jid: str) -> Job | None:
         return self.jobs.get(jid)
@@ -337,6 +359,8 @@ class JobManager:
                     job.status = "running"
                     work_dir = config.WORKSPACE / job.id
                     ctx = runner.prepare(job.url, work_dir, job.sep_model,
+                                         instrumental_path=job.instrumental_src,
+                                         vocal_path=job.vocal_src,
                                          log=log, stage=stage, progress=progress)
                     job.ctx = ctx
                     job.meta = ctx["meta"]

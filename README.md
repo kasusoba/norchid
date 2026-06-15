@@ -40,6 +40,13 @@ python -m app.cli "https://www.youtube.com/watch?v=…" \
     --layout album --vocal-mode instrumental --offset 0
 ```
 
+**No GPU / already have an instrumental?** Skip the slow separation step and supply your
+own backing track — in the web UI use the *"Own instrumental"* file picker on the start
+screen; on the CLI pass `--instrumental path/to/inst.wav` (any ffmpeg-readable audio). The
+YouTube URL is still used for metadata, cover art and lyrics; only separation is skipped.
+For guide-vocal sing-along, also supply a vocal/acapella stem (the *"Own vocal"* picker, or
+`--vocal path/to/vocal.wav`); without it the job is instrumental-only.
+
 Outputs: `video.mp4` (1080p60), `thumbnail.png` (1280×720), `instrumental.wav`.
 
 ## Status

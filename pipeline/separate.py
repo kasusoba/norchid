@@ -10,9 +10,40 @@ from __future__ import annotations
 import contextlib
 import importlib
 import shutil
+import subprocess
 from pathlib import Path
 
 from app import config
+
+
+def _transcode(source: Path, dst: Path, what: str) -> Path:
+    """Transcode any ffmpeg-readable audio to a 16-bit PCM wav at ``dst``."""
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", str(source), "-c:a", "pcm_s16le", str(dst)],
+            check=True, capture_output=True,
+        )
+    except subprocess.CalledProcessError as e:
+        msg = e.stderr.decode("utf-8", "ignore")[-400:] if e.stderr else ""
+        raise RuntimeError(f"Could not read the supplied {what} file: {msg}") from e
+    if not dst.exists():
+        raise RuntimeError(f"Supplied {what} produced no audio.")
+    return dst
+
+
+def import_instrumental(source: Path, work_dir: Path,
+                        vocal_source: Path | None = None) -> dict:
+    """Use a user-supplied instrumental instead of separating.
+
+    Transcodes ``source`` to ``work_dir/instrumental.wav`` (keeping the downstream
+    "instrumental.wav" invariant). When ``vocal_source`` is also given it becomes
+    ``vocals.wav`` so guide-vocal mode works; otherwise there is no vocal stem and
+    the job is instrumental-only.
+    """
+    work_dir.mkdir(parents=True, exist_ok=True)
+    inst = _transcode(source, work_dir / "instrumental.wav", "instrumental")
+    voc = _transcode(vocal_source, work_dir / "vocals.wav", "vocal") if vocal_source else None
+    return {"instrumental": inst, "vocal": voc, "model": "user-supplied"}
 
 
 def _resolve_model(model_key: str) -> str:

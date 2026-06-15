@@ -9,7 +9,8 @@ dependencies = [
     "python-multipart>=0.0.9",   # form/file uploads
     "httpx>=0.27",               # LRCLIB + iTunes/Deezer
     "yt-dlp>=2024.1.0",          # download audio + metadata
-    "audio-separator>=0.18",     # instrumental/vocal separation (pulls torch/onnxruntime)
+    "audio-separator>=0.18",     # instrumental/vocal separation (pulls torch)
+    "onnxruntime>=1.17",         # audio-separator runtime (not always pulled on Apple Silicon)
     "pillow>=10.0",              # thumbnails, generated backgrounds, dominant color
 ]
 

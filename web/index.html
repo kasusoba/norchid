@@ -25,12 +25,34 @@
                @keydown.enter="start()" />
         <div class="spacer"></div>
         <label>Separation model</label>
-        <select x-model="form.sep_model">
+        <select x-model="form.sep_model" :disabled="!!instrumentalFile">
           <template x-for="m in cfg.models" :key="m.id">
             <option :value="m.id" x-text="m.label"></option>
           </template>
         </select>
         <div class="hint">Roformer = best quality. MDX-NET = faster draft.</div>
+        <div class="spacer"></div>
+        <label>Own instrumental <small class="muted">(optional — skips separation)</small></label>
+        <input type="file" accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg,.opus,.aac"
+               @change="onInstrumentalPick($event)" />
+        <div class="hint" x-show="!instrumentalFile">No GPU? Drop in an instrumental you already have to skip the slow separation step.</div>
+        <template x-if="!!instrumentalFile">
+          <div>
+            <div class="hint">
+              Using <strong x-text="instrumentalFile?.name"></strong> — separation skipped.
+              <a href="#" @click.prevent="clearInstrumental()">remove</a>
+            </div>
+            <div class="spacer"></div>
+            <label>Own vocal <small class="muted">(optional — enables guide-vocal)</small></label>
+            <input type="file" accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg,.opus,.aac"
+                   @change="onVocalPick($event)" />
+            <div class="hint" x-show="!vocalFile">Add an acapella/vocal stem to sing along (Guide mode). Leave empty for instrumental-only.</div>
+            <div class="hint" x-show="!!vocalFile">
+              Guide vocal: <strong x-text="vocalFile?.name"></strong>.
+              <a href="#" @click.prevent="clearVocal()">remove</a>
+            </div>
+          </div>
+        </template>
         <div class="spacer"></div>
         <button class="btn block" @click="start()" :disabled="!form.url.trim()">Start →</button>
       </div>
@@ -193,7 +215,8 @@
             <label>Audio</label>
             <div class="seg">
               <button :class="form.vocal_mode==='instrumental' && 'on'" @click="setVocal('instrumental')">Instrumental</button>
-              <button :class="form.vocal_mode==='guide' && 'on'" @click="setVocal('guide')">Guide</button>
+              <button :class="form.vocal_mode==='guide' && 'on'" @click="setVocal('guide')"
+                      :disabled="!review.vocal_url" :title="review.vocal_url ? '' : 'No vocal stem (own instrumental)'">Guide</button>
             </div>
           </div>
         </div>
@@ -324,6 +347,8 @@ function norchid() {
     rcfg: { width: 1920, height: 1080, scroll: { font_size: 60, line_gap_ratio: 1.733, line_gap_ratio_romaji: 2.55, romaji_size_ratio: 0.52, romaji_offset_ratio: 0.92, visible_radius: 6, transition_ms: 240, alpha_active: 0, alpha_passed: 0.66, alpha_upcoming: 0.42 } },
     form: { url: '', sep_model: 'roformer', lrc: '', romaji: '', offset_ms: 0, vocal_mode: 'instrumental', bg_mode: 'color', bg_color: null, title_main: '', title_secondary: '', title_size: 84, pill_size: 34, pill_gap: 22, thumb_bg: 'youtube', pill_color: null, lyric_size: 60 },
     romajiLines: [],
+    instrumentalFile: null,
+    vocalFile: null,
     jobId: null,
     jobList: [],
     forceReview: false,
@@ -408,10 +433,31 @@ function norchid() {
     reopenReview() { this.forceReview = true; this.reviewLoaded = false; this.loadReview(); },
     fmtT(s) { s = Math.max(0, Math.round(s||0)); return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`; },
 
+    onInstrumentalPick(e) {
+      this.instrumentalFile = (e.target.files && e.target.files[0]) || null;
+      if (!this.instrumentalFile) this.clearVocal();   // vocal needs an instrumental
+    },
+    clearInstrumental() {
+      this.instrumentalFile = null;
+      this.clearVocal();
+      const els = document.querySelectorAll('input[type=file][accept*="audio"]');
+      els.forEach(el => el.value = '');
+    },
+    onVocalPick(e) { this.vocalFile = (e.target.files && e.target.files[0]) || null; },
+    clearVocal() {
+      this.vocalFile = null;
+      const els = document.querySelectorAll('input[type=file][accept*="audio"]');
+      if (els[1]) els[1].value = '';
+    },
+
     async start() {
       if (!this.form.url.trim()) return;
-      const r = await fetch('/api/jobs', { method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ youtube_url: this.form.url.trim(), sep_model: this.form.sep_model }) });
+      const fd = new FormData();
+      fd.append('youtube_url', this.form.url.trim());
+      fd.append('sep_model', this.form.sep_model);
+      if (this.instrumentalFile) fd.append('instrumental', this.instrumentalFile);
+      if (this.instrumentalFile && this.vocalFile) fd.append('vocal', this.vocalFile);
+      const r = await fetch('/api/jobs', { method:'POST', body: fd });
       this.jobId = (await r.json()).job_id;
       this.reviewLoaded = false;
       this.startPolling();

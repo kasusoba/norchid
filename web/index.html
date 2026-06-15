@@ -756,11 +756,23 @@ function norchid() {
       return i >= 0 ? i : 0;
     },
     buildTapLines() {
-      // Rebuild from the words box, preserving existing times by line position so
-      // a typo fix or inserted line doesn't wipe what you've already timed.
+      // Rebuild from the words box while keeping the times you've already set.
       const texts = this.tapText.split('\n').map(s => s.trim()).filter(Boolean);
       const prev = this.tapLines || [];
-      this.tapLines = texts.map((text, i) => ({ text, t: prev[i] ? prev[i].t : null }));
+      if (texts.length === prev.length) {
+        // Same number of lines (typo fix / rewording): keep times by position.
+        this.tapLines = texts.map((text, i) => ({ text, t: prev[i] ? prev[i].t : null }));
+      } else {
+        // Structural change (split a line, insert/delete): re-match each line to a
+        // prior one by its words so untouched lines keep the right time; new/changed
+        // lines come up untimed (—) rather than inheriting a neighbour's stamp.
+        const pool = prev.map(p => ({ t: p.t, text: p.text, used: false }));
+        this.tapLines = texts.map(text => {
+          const hit = pool.find(p => !p.used && p.text === text);
+          if (hit) { hit.used = true; return { text, t: hit.t }; }
+          return { text, t: null };
+        });
+      }
       if (this.tapIdx >= this.tapLines.length) this.tapIdx = Math.max(0, this.tapLines.length - 1);
     },
     onTapTextChange() { this.buildTapLines(); },

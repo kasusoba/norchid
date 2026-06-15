@@ -120,6 +120,13 @@
                  @pointercancel="_scrubbing=false" @change="_scrubbing=false" />
           <span class="time" x-ref="timeLabel">0:00 / 0:00</span>
         </div>
+        <div class="flex-between" style="margin-top:8px" x-show="review.source_url">
+          <small class="muted">Listen to</small>
+          <div class="seg">
+            <button :class="playSource==='instrumental' && 'on'" @click="setPlaySource('instrumental')">Instrumental</button>
+            <button :class="playSource==='original' && 'on'" @click="setPlaySource('original')">Original (vocals)</button>
+          </div>
+        </div>
         <div class="spacer"></div>
         <label>Background</label>
         <div class="flex-between">
@@ -163,17 +170,12 @@
         <div class="hint" x-show="publishMsg" x-text="publishMsg"></div>
 
         <div x-show="tapOpen" class="tap-editor">
-          <div class="hint" style="margin-top:0">Your lyrics are loaded with their current timing. Play the song and tap
-            <b>Space</b> (or the button) as each line starts — or <b>click any line</b> to jump there and re-time just
-            that one. Untouched lines keep their timestamps.</div>
+          <div class="hint" style="margin-top:0">Use the <b>player on the left</b> (switched to <b>Original/vocals</b> so you can hear the singing).
+            Tap <b>Space</b> or the button as each line starts — or <b>click any line</b> to jump there and re-time just
+            that one. Untouched lines keep their timestamps; the preview scrolls live as you tap.</div>
           <div class="spacer"></div>
           <textarea x-model="tapText" @input="onTapTextChange()" spellcheck="false" style="min-height:110px"
                     placeholder="first line&#10;second line&#10;…"></textarea>
-          <div class="transport">
-            <button class="btn play" @click="tapTogglePlay()" x-text="tapPlaying ? '⏸' : '▶'"></button>
-            <input type="range" min="0" :max="tapDur || 1" step="0.05" :value="tapTime" @input="tapSeek($event.target.value)" />
-            <span class="time" x-text="fmtT(tapTime) + ' / ' + fmtT(tapDur)"></span>
-          </div>
           <div style="display:flex;gap:8px;margin-top:8px">
             <button class="btn green" style="flex:2" @click="tap()" :disabled="tapIdx>=tapLines.length">
               TAP <span x-text="`${Math.min(tapIdx+1,tapLines.length)}/${tapLines.length}`"></span>
@@ -194,9 +196,6 @@
           </div>
           <div class="spacer"></div>
           <button class="btn green block" @click="tapApply()" :disabled="!tapLines.some(l=>l.t!=null)">Apply timing → LRC</button>
-          <audio x-ref="tapAudio" :src="review.source_url || review.instrumental_url" preload="none"
-                 @loadedmetadata="tapAudioReady()" @timeupdate="tapTime = $refs.tapAudio.currentTime"
-                 @play="tapPlaying=true" @pause="tapPlaying=false"></audio>
         </div>
 
         <div class="spacer"></div>
@@ -306,8 +305,10 @@
       </div>
     </div>
 
-    <!-- audio elements driving the preview -->
-    <audio x-ref="inst" :src="review.instrumental_url" preload="auto"
+    <!-- single audio element driving the preview AND tap-sync; src switches
+         between the instrumental (final-mix preview) and the original with
+         vocals (accurate timing) without losing the play position. -->
+    <audio x-ref="inst" :src="activeSrc" preload="auto"
            @loadedmetadata="onAudioReady()" @ended="onEnded()"></audio>
     <audio x-ref="voc" :src="review.vocal_url || ''" preload="auto"></audio>
   </div>
@@ -365,14 +366,16 @@ function norchid() {
     lineEls: [],
     playing: false,
     pvDuration: 0,
+    playSource: 'instrumental',   // 'instrumental' (final mix) | 'original' (with vocals)
     realFrame: null,
     thumbSrc: '',
     _dirty: false,
     _scrubbing: false,
+    _resumeTime: null,
+    _resumePlay: false,
     uploading: false,
     // tap-sync editor
-    tapOpen: false, tapText: '', tapLines: [], tapIdx: 0, tapPlaying: false,
-    tapTime: 0, tapDur: 0,
+    tapOpen: false, tapText: '', tapLines: [], tapIdx: 0,
     publishing: false, publishMsg: '',
 
     get screen() {
@@ -495,6 +498,8 @@ function norchid() {
       this.form.pill_gap = this.review.pill_gap != null ? this.review.pill_gap : 22;
       this.form.thumb_bg = this.review.thumb_bg || 'youtube';
       this.thumbSrc = this.review.thumbnail_url + '?_=' + Date.now();
+      // Fresh review: single player back to the instrumental, tap session cleared.
+      this.playSource = 'instrumental'; this.tapOpen = false; this.tapLines = []; this.tapText = '';
       this.reviewLoaded = true;
       this.reparse();
       this._dirty = true;   // the persistent renderLoop() rebuilds + renders next frame
@@ -606,6 +611,22 @@ function norchid() {
       });
     },
     curTime() { const a = this.$refs.inst; return a ? (a.currentTime || 0) : 0; },
+    get activeSrc() {
+      return (this.playSource === 'original' && this.review.source_url)
+        ? this.review.source_url : this.review.instrumental_url;
+    },
+    setPlaySource(which) {
+      if (which === this.playSource) return;
+      if (which === 'original' && !this.review.source_url) return;
+      const a = this.$refs.inst, v = this.$refs.voc;
+      // Remember where we are so the swap is seamless, then let :src reload.
+      this._resumeTime = a ? (a.currentTime || 0) : 0;
+      this._resumePlay = a ? !a.paused : false;
+      if (a) a.pause();
+      if (v) v.pause();
+      this.playSource = which;
+      this.clearRealFrame();
+    },
     renderFrame(tau) {
       const S = this.rcfg.scroll, midY = this.rcfg.height / 2, g = this.geom();
       const opA = 1 - S.alpha_active, opP = 1 - S.alpha_passed, opU = 1 - S.alpha_upcoming;
@@ -649,7 +670,8 @@ function norchid() {
           // Keep the guide-vocal stem locked to the instrumental (two <audio>
           // elements drift; resync when they slip more than ~120ms).
           const v = this.$refs.voc;
-          if (this.form.vocal_mode === 'guide' && v && a && !a.paused && !v.paused
+          if (this.playSource === 'instrumental' && this.form.vocal_mode === 'guide'
+              && v && a && !a.paused && !v.paused
               && Math.abs(v.currentTime - t) > 0.12) v.currentTime = t;
           const scrub = this.$refs.scrub, lbl = this.$refs.timeLabel;
           if (scrub && !this._scrubbing) { scrub.max = this.pvDuration || 1; scrub.value = t; }
@@ -662,6 +684,12 @@ function norchid() {
     onAudioReady() {
       const a = this.$refs.inst;
       this.pvDuration = (a && a.duration) || this.review.duration || 0;
+      // Restore position/play state after a source swap (instrumental ↔ original).
+      if (a && this._resumeTime != null) {
+        try { a.currentTime = Math.min(this._resumeTime, this.pvDuration || this._resumeTime); } catch (e) {}
+        if (this._resumePlay) { a.play(); this.playing = true; }
+        this._resumeTime = null; this._resumePlay = false;
+      }
     },
     onEnded() { this.playing = false; const v=this.$refs.voc; if (v) v.pause(); },
 
@@ -671,7 +699,8 @@ function norchid() {
       this.clearRealFrame();
       if (a.paused) {
         a.play(); this.playing = true;
-        if (this.form.vocal_mode === 'guide' && this.review.vocal_url && v) { v.currentTime = a.currentTime; v.volume = 0.15; v.play(); }
+        if (this.playSource === 'instrumental' && this.form.vocal_mode === 'guide'
+            && this.review.vocal_url && v) { v.currentTime = a.currentTime; v.volume = 0.15; v.play(); }
       } else { a.pause(); this.playing = false; if (v) v.pause(); }
     },
     seek(val) {
@@ -685,8 +714,9 @@ function norchid() {
       this.form.vocal_mode = mode;
       const a = this.$refs.inst, v = this.$refs.voc;
       if (!v || !this.review.vocal_url) return;
-      if (mode === 'guide' && a && !a.paused) { v.currentTime = a.currentTime; v.volume = 0.15; v.play(); }
-      else { v.pause(); }
+      if (mode === 'guide' && this.playSource === 'instrumental' && a && !a.paused) {
+        v.currentTime = a.currentTime; v.volume = 0.15; v.play();
+      } else { v.pause(); }
     },
     pickBg(id) { const b=this.review.backgrounds.find(x=>x.id===id); if (b && b.available) { this.form.bg_mode = id; this.clearRealFrame(); } },
     pickBgColor(rgb) { this.form.bg_color = rgb.slice(); this.form.bg_mode = 'color'; this.clearRealFrame(); },
@@ -731,9 +761,10 @@ function norchid() {
       // tweak existing timing instead of starting from scratch. An in-progress
       // session (tapLines already built) is kept; use "Reload" to re-pull.
       if (!this.tapLines.length) this.tapReload();
-      this.$nextTick(() => this.tapAudioReady());
+      // Hear the vocals while timing — the same single player, just a different src.
+      this.setPlaySource('original');
     },
-    closeTap() { this.tapOpen = false; const a = this.$refs.tapAudio; if (a) a.pause(); },
+    closeTap() { this.tapOpen = false; this.setPlaySource('instrumental'); },
     lrcToTapLines(lrc) {
       // One {text, t} per word-line; t = seconds, or null when the line is untimed.
       const re = /\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]/;
@@ -776,22 +807,19 @@ function norchid() {
       if (this.tapIdx >= this.tapLines.length) this.tapIdx = Math.max(0, this.tapLines.length - 1);
     },
     onTapTextChange() { this.buildTapLines(); },
-    tapAudioReady() { const a = this.$refs.tapAudio; this.tapDur = (a && a.duration) || this.pvDuration || 0; },
-    tapTogglePlay() { const a = this.$refs.tapAudio; if (!a) return; a.paused ? a.play() : a.pause(); },
-    tapSeek(v) { const a = this.$refs.tapAudio; if (a) { a.currentTime = +v; this.tapTime = +v; } },
     tapPick(i) {
-      // Select a line and jump just before it so you can re-time that one line.
+      // Select a line and jump the single player just before it, to re-time it.
       this.tapIdx = i;
-      const a = this.$refs.tapAudio, t = this.tapLines[i] && this.tapLines[i].t;
-      if (a && t != null) { a.currentTime = Math.max(0, t - 1.2); this.tapTime = a.currentTime; }
+      const t = this.tapLines[i] && this.tapLines[i].t;
+      if (t != null) this.seek(Math.max(0, t - 1.2));
     },
     tap() {
-      const a = this.$refs.tapAudio; if (!a || this.tapIdx >= this.tapLines.length) return;
-      this.tapLines[this.tapIdx].t = a.currentTime; this.tapIdx++;
+      if (this.tapIdx >= this.tapLines.length) return;
+      this.tapLines[this.tapIdx].t = this.curTime(); this.tapIdx++;
     },
     tapUndo() { if (this.tapIdx > 0) { this.tapIdx--; this.tapLines[this.tapIdx].t = null; } },
     tapClear(i) { if (this.tapLines[i]) { this.tapLines[i].t = null; this.tapIdx = i; } },
-    tapRestart() { this.tapLines.forEach(l => l.t = null); this.tapIdx = 0; const a = this.$refs.tapAudio; if (a) a.currentTime = 0; },
+    tapRestart() { this.tapLines.forEach(l => l.t = null); this.tapIdx = 0; this.seek(0); },
     tapApply() {
       // Keep every timed line (existing + just-tapped), emitted in time order.
       const timed = this.tapLines.filter(l => l.t != null && l.text).slice().sort((a, b) => a.t - b.t);
@@ -854,6 +882,7 @@ function norchid() {
       this.clearRealFrame();
       this.jobId = null; this.reviewLoaded = false; this.forceReview = false;
       this.parsed = []; this.lineEls = []; this.playing = false;
+      this.playSource = 'instrumental'; this.tapOpen = false; this.tapLines = []; this.tapText = '';
       this.job = { status: null, stage: '', progress: 0, logs: [], outputs: {}, meta: {} };
       this.form.url = '';
       this.loadJobList();

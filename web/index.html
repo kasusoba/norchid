@@ -163,8 +163,9 @@
         <div class="hint" x-show="publishMsg" x-text="publishMsg"></div>
 
         <div x-show="tapOpen" class="tap-editor">
-          <div class="hint" style="margin-top:0">Paste the words (one line each), play the song, and tap
-            <b>Space</b> (or the button) right as each line starts.</div>
+          <div class="hint" style="margin-top:0">Your lyrics are loaded with their current timing. Play the song and tap
+            <b>Space</b> (or the button) as each line starts — or <b>click any line</b> to jump there and re-time just
+            that one. Untouched lines keep their timestamps.</div>
           <div class="spacer"></div>
           <textarea x-model="tapText" @input="onTapTextChange()" spellcheck="false" style="min-height:110px"
                     placeholder="first line&#10;second line&#10;…"></textarea>
@@ -178,13 +179,16 @@
               TAP <span x-text="`${Math.min(tapIdx+1,tapLines.length)}/${tapLines.length}`"></span>
             </button>
             <button class="btn ghost" @click="tapUndo()" :disabled="!tapIdx">Undo</button>
-            <button class="btn ghost" @click="tapRestart()">Restart</button>
+            <button class="btn ghost" @click="tapReload()" title="re-pull lyrics + timing from the LRC box">↻ Reload</button>
+            <button class="btn ghost" @click="tapRestart()" title="clear every timestamp">Clear all</button>
           </div>
           <div class="tap-lines">
             <template x-for="(l,i) in tapLines" :key="i">
-              <div class="tap-line" :class="i===tapIdx ? 'cur' : (l.t!=null ? 'done' : '')">
+              <div class="tap-line" :class="i===tapIdx ? 'cur' : (l.t!=null ? 'done' : '')"
+                   @click="tapPick(i)" style="cursor:pointer">
                 <span class="tap-stamp" x-text="l.t!=null ? fmtLrc(l.t) : '—'"></span>
-                <span x-text="l.text"></span>
+                <span style="flex:1" x-text="l.text"></span>
+                <button class="del-btn" x-show="l.t!=null" @click.stop="tapClear(i)" title="clear this line's time">✕</button>
               </div>
             </template>
           </div>
@@ -723,33 +727,65 @@ function norchid() {
     },
     openTap() {
       this.tapOpen = true;
-      if (!this.tapText.trim()) {
-        // seed from current LRC (strip timestamps) so you can re-time existing lines
-        this.tapText = (this.form.lrc || '').split('\n')
-          .map(l => l.replace(/\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]/g, '').trim())
-          .filter(Boolean).join('\n');
-      }
-      this.buildTapLines();
+      // First open: pull in the current LRC (with its timestamps) so you can
+      // tweak existing timing instead of starting from scratch. An in-progress
+      // session (tapLines already built) is kept; use "Reload" to re-pull.
+      if (!this.tapLines.length) this.tapReload();
+      this.$nextTick(() => this.tapAudioReady());
     },
     closeTap() { this.tapOpen = false; const a = this.$refs.tapAudio; if (a) a.pause(); },
+    lrcToTapLines(lrc) {
+      // One {text, t} per word-line; t = seconds, or null when the line is untimed.
+      const re = /\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]/;
+      const strip = /\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]/g;
+      return (lrc || '').split('\n').map(raw => {
+        const m = raw.match(re);
+        let t = null;
+        if (m) { t = (+m[1]) * 60 + (+m[2]); if (m[3]) t += (+m[3].padEnd(3, '0')) / 1000; }
+        return { text: raw.replace(strip, '').trim(), t };
+      }).filter(l => l.text);
+    },
+    tapReload() {
+      const seeded = this.lrcToTapLines(this.form.lrc);
+      this.tapText = seeded.map(l => l.text).join('\n');
+      this.tapLines = seeded;
+      this.tapIdx = this.firstUntimedIdx();
+    },
+    firstUntimedIdx() {
+      const i = (this.tapLines || []).findIndex(l => l.t == null);
+      return i >= 0 ? i : 0;
+    },
     buildTapLines() {
-      this.tapLines = this.tapText.split('\n').map(s => s.trim()).filter(Boolean).map(text => ({ text, t: null }));
-      this.tapIdx = 0;
+      // Rebuild from the words box, preserving existing times by line position so
+      // a typo fix or inserted line doesn't wipe what you've already timed.
+      const texts = this.tapText.split('\n').map(s => s.trim()).filter(Boolean);
+      const prev = this.tapLines || [];
+      this.tapLines = texts.map((text, i) => ({ text, t: prev[i] ? prev[i].t : null }));
+      if (this.tapIdx >= this.tapLines.length) this.tapIdx = Math.max(0, this.tapLines.length - 1);
     },
     onTapTextChange() { this.buildTapLines(); },
     tapAudioReady() { const a = this.$refs.tapAudio; this.tapDur = (a && a.duration) || this.pvDuration || 0; },
     tapTogglePlay() { const a = this.$refs.tapAudio; if (!a) return; a.paused ? a.play() : a.pause(); },
     tapSeek(v) { const a = this.$refs.tapAudio; if (a) { a.currentTime = +v; this.tapTime = +v; } },
+    tapPick(i) {
+      // Select a line and jump just before it so you can re-time that one line.
+      this.tapIdx = i;
+      const a = this.$refs.tapAudio, t = this.tapLines[i] && this.tapLines[i].t;
+      if (a && t != null) { a.currentTime = Math.max(0, t - 1.2); this.tapTime = a.currentTime; }
+    },
     tap() {
       const a = this.$refs.tapAudio; if (!a || this.tapIdx >= this.tapLines.length) return;
       this.tapLines[this.tapIdx].t = a.currentTime; this.tapIdx++;
     },
     tapUndo() { if (this.tapIdx > 0) { this.tapIdx--; this.tapLines[this.tapIdx].t = null; } },
+    tapClear(i) { if (this.tapLines[i]) { this.tapLines[i].t = null; this.tapIdx = i; } },
     tapRestart() { this.tapLines.forEach(l => l.t = null); this.tapIdx = 0; const a = this.$refs.tapAudio; if (a) a.currentTime = 0; },
     tapApply() {
-      const lrc = this.tapLines.filter(l => l.t != null).map(l => `[${this.fmtLrc(l.t)}] ${l.text}`).join('\n');
-      if (!lrc) return;
-      this.form.lrc = lrc; this.onLrcChange();
+      // Keep every timed line (existing + just-tapped), emitted in time order.
+      const timed = this.tapLines.filter(l => l.t != null && l.text).slice().sort((a, b) => a.t - b.t);
+      if (!timed.length) return;
+      this.form.lrc = timed.map(l => `[${this.fmtLrc(l.t)}] ${l.text}`).join('\n');
+      this.onLrcChange();
       this.closeTap();
     },
     keyTap(e) {
